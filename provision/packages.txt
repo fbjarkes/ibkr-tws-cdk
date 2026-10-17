@@ -1,0 +1,14 @@
+# One Ubuntu apt package per line. Versions may be specified with name=version.
+xfce4
+xfce4-terminal
+xrdp
+xorgxrdp
+dbus-x11
+libreoffice
+firefox
+git
+jq
+python3-venv
+rclone
+fuse3
+nvme-cli

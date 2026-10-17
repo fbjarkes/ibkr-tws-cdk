@@ -1,0 +1,15 @@
+node_modules/
+cdk.out/
+config/local.json
+*.log
+.env
+
+# Local credentials and secret material
+.env.*
+!.env.example
+.aws/
+.ssh/
+*.pem
+*.key
+*.p12
+*.pfx

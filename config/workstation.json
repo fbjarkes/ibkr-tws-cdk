@@ -1,0 +1,10 @@
+{
+  "region": "eu-north-1",
+  "availabilityZone": "eu-north-1a",
+  "instanceType": "m7i.xlarge",
+  "dataGiB": 100,
+  "bucket": "",
+  "prefix": "",
+  "s3ReadWrite": false,
+  "amiId": ""
+}

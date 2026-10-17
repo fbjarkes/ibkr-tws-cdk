@@ -1,0 +1,22 @@
+{
+  "name": "ibkr-tws-cdk",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc --noEmit",
+    "synth": "cdk synth --quiet --no-lookups",
+    "test": "tsx --test test/*.test.ts",
+    "format": "prettier --write {bin,lib,test}/**/*.ts *.json config/*.json README.md"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "2.273.0",
+    "constructs": "10.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "aws-cdk": "2.1145.0",
+    "prettier": "3.6.2",
+    "tsx": "^4.20.0",
+    "typescript": "~5.9.3"
+  }
+}

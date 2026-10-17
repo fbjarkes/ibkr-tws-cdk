@@ -1,0 +1,14 @@
+[Unit]
+Description=RDP bound exclusively to Tailscale
+After=network-online.target tailscaled.service xrdp-sesman.service
+Requires=tailscaled.service xrdp-sesman.service
+RequiresMountsFor=/home/trader /var/lib/tailscale
+StartLimitIntervalSec=0
+[Service]
+Type=simple
+ExecStartPre=/bin/sh /usr/share/xrdp/socksetup
+ExecStart=/usr/local/sbin/tws-start-rdp
+Restart=always
+RestartSec=10
+[Install]
+WantedBy=multi-user.target

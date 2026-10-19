@@ -10,6 +10,61 @@ First iteration of a persistent Ubuntu desktop for Interactive Brokers TWS. Type
 - `/srv/tws/home` is bind-mounted at `/home/trader`. Put TWS and its settings there. `/srv/tws/tailscale` preserves the machine identity across exclusive rebuilds. Never run two instances with this data/identity. The instance is tied to the data volume's AZ; this is not high availability.
 - Root packages are recreated on rebuild. Home files survive, but running sessions, unsaved work and the trader password do not. Set the password after each rebuild. Existing snapshots are crash-consistent; close apps before taking a manual snapshot for a known clean recovery point.
 
+## Architecture
+
+The diagram shows the current CDK configuration. TWS is installed manually, and the S3 data mount is optional.
+
+```mermaid
+flowchart TB
+  client["Win11 / Debian / macOS<br/>RDP client + Tailscale"]
+  dev["Developer workstation<br/>Git · CDK · AWS CLI"]
+  ts["Tailscale coordination / relay<br/>External service"]
+  ib["Interactive Brokers<br/>External service"]
+
+  subgraph account["AWS account"]
+    iam["AWS IAM<br/>EC2 instance role + instance profile<br/>Separate DLM service role"]
+    subgraph region["AWS Region: eu-north-1 — Stockholm"]
+      cf["AWS CloudFormation<br/>TwsFoundation + TwsDesktop"]
+      assets["Amazon S3<br/>CDK bootstrap asset bucket<br/>Provisioning scripts and files"]
+      s3["Amazon S3 — optional existing bucket<br/>Selected bucket / prefix<br/>Read-only by default"]
+      ssm["AWS Systems Manager<br/>Session Manager / Run Command"]
+      dlm["Amazon Data Lifecycle Manager<br/>Daily snapshots at 02:00 UTC"]
+      snapshots["Amazon EBS snapshots<br/>Retain seven daily snapshots"]
+        subgraph vpc["Amazon VPC — single-AZ subnet layout"]
+          igw["Internet Gateway<br/>Public subnet route: 0.0.0.0/0"]
+          subgraph subnet["Public subnet — eu-north-1a · no NAT gateway"]
+            subgraph sg["Security group attached to EC2 ENI<br/>Inbound: UDP 41641 only · Outbound: all"]
+              ec2["Amazon EC2 — m7i.xlarge<br/>Ubuntu 24.04 · 4 vCPU · 16 GiB<br/>Public IPv4 · IMDSv2 required<br/>Tailscale → xrdp / XFCE<br/>TWS installed manually · LibreOffice · browser<br/>SSM Agent · rclone"]
+            end
+          end
+        end
+        root["Amazon EBS — encrypted gp3 · 40 GiB<br/>Root OS disk · eu-north-1a<br/>Deleted with desktop instance"]
+        data["Amazon EBS — encrypted gp3 · 100 GiB<br/>eu-north-1a · Home, TWS files, S3 cache<br/>Persistent Tailscale identity<br/>Retained across desktop rebuilds"]
+    end
+  end
+
+  dev -->|"Deploy infrastructure"| cf
+  dev -->|"Publish provisioning asset"| assets
+  dev -->|"AWS-authenticated recovery and commands"| ssm
+  cf -.->|"Provision / manage"| ec2
+  cf -.->|"Provision / retain"| data
+  client <-->|"Encrypted Tailscale tunnel<br/>RDP 3389 inside tunnel"| igw
+  igw <--> ec2
+  ec2 <-->|"Network path via Internet Gateway"| ts
+  ec2 <-->|"Outbound network path via Internet Gateway"| ib
+  ec2 -->|"HTTPS via Internet Gateway<br/>Download provisioning asset"| assets
+  ec2 <-->|"HTTPS via Internet Gateway<br/>Optional rclone mount"| s3
+  ec2 -->|"Outbound HTTPS via Internet Gateway"| ssm
+  iam -.->|"Temporary role credentials"| ec2
+  iam -.->|"Snapshot permissions"| dlm
+  ec2 --- root
+  ec2 --- data
+  dlm -.->|"Snapshot tagged data volume"| data
+  dlm --> snapshots
+```
+
+See [the detailed architecture documentation](docs/architecture.md) for stack ownership, resource lifecycle, and access details.
+
 ## Prerequisites
 
 Node.js 22 LTS (current maintained patch) or newer supported LTS, npm, AWS CLI v2, PowerShell 7, and the Session Manager plugin. AWS profile `poweruser` must be authenticated. Creating/passing IAM roles, CloudFormation, EC2, DLM and CDK asset permissions are needed; the profile name does not establish permissions. If these are missing, use an administrator-approved deployment role.

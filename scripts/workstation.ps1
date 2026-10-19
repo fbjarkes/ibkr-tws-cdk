@@ -48,11 +48,14 @@ if systemctl is-active --quiet tws-s3fs.service; then
 fi
 sync
 '@
+      # A CRLF checkout on Windows would hand bash 'set -eu\r' and break every stop.
+      $check = $check -replace "`r", ''
       $parameterFile = Join-Path ([IO.Path]::GetTempPath()) ("tws-command-" + [guid]::NewGuid() + '.json')
       try {
         @{ commands = @($check) } | ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 $parameterFile
         $commandId = Invoke-Aws -CliArgs @('ssm','send-command','--instance-ids',$instance,'--document-name','AWS-RunShellScript','--parameters',"file://$parameterFile",'--query','Command.CommandId','--output','text')
-        Invoke-Aws -CliArgs @('ssm','wait','command-executed','--command-id',$commandId,'--instance-id',$instance)
+        # The waiter exits non-zero on a failed command; read the invocation for the real reason.
+        & aws ssm wait command-executed --command-id $commandId --instance-id $instance --profile $Profile --region $Region 2>$null
         $result = Invoke-Aws -CliArgs @('ssm','get-command-invocation','--command-id',$commandId,'--instance-id',$instance,'--output','json') | ConvertFrom-Json
         if ($result.Status -ne 'Success') { throw "Shutdown checks failed: $($result.StandardErrorContent) $($result.StandardOutputContent)" }
       } finally { Remove-Item -LiteralPath $parameterFile -ErrorAction SilentlyContinue }
@@ -61,7 +64,8 @@ sync
     }
     if ($Action -eq 'down') {
       Push-Location $projectRoot
-      try { & npx.cmd cdk destroy TwsDesktop --profile $Profile; if ($LASTEXITCODE -ne 0) { throw 'CDK destroy failed' } }
+      $npx = if ($IsWindows) { 'npx.cmd' } else { 'npx' }
+      try { & $npx cdk destroy TwsDesktop --profile $Profile; if ($LASTEXITCODE -ne 0) { throw 'CDK destroy failed' } }
       finally { Pop-Location }
     }
   }

@@ -119,7 +119,8 @@ export class Desktop extends Stack {
     const asset = new assets.Asset(this, "Provision", {
       path: resolve(__dirname, "../provision"),
     });
-    asset.grantRead(role);
+    // Asset.grantRead() would expose the whole CDK bootstrap bucket (every app's assets).
+    asset.bucket.grantRead(role, asset.s3ObjectKey);
     if (config.bucket && !config.s3PasswdParameter) {
       const prefix = config.prefix
         ? config.prefix.replace(/\/$/, "") + "/"
@@ -157,24 +158,34 @@ export class Desktop extends Stack {
         }),
       );
     }
-    if (config.bucket && config.s3PasswdParameter) {
-      const parameterArn = this.formatArn({
-        service: "ssm",
-        resource: "parameter",
-        resourceName: config.s3PasswdParameter.slice(1),
-      });
+    const parameterArn =
+      config.bucket && config.s3PasswdParameter
+        ? this.formatArn({
+            service: "ssm",
+            resource: "parameter",
+            resourceName: config.s3PasswdParameter.slice(1),
+          })
+        : undefined;
+    // AmazonSSMManagedInstanceCore allows ssm:GetParameter(s) on '*'. Without this deny the
+    // desktop could read every parameter in the account, including SecureStrings under aws/ssm.
+    role.addToPolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.DENY,
+        actions: [
+          "ssm:GetParameter",
+          "ssm:GetParameters",
+          "ssm:GetParametersByPath",
+        ],
+        ...(parameterArn
+          ? { notResources: [parameterArn] }
+          : { resources: ["*"] }),
+      }),
+    );
+    if (parameterArn) {
       role.addToPolicy(
         new iam.PolicyStatement({
           actions: ["ssm:GetParameter"],
           resources: [parameterArn],
-        }),
-      );
-      // SSM's core managed policy otherwise allows parameter reads on '*'.
-      role.addToPolicy(
-        new iam.PolicyStatement({
-          effect: iam.Effect.DENY,
-          actions: ["ssm:GetParameter", "ssm:GetParameters"],
-          notResources: [parameterArn],
         }),
       );
       if (config.s3PasswdKmsKeyArn) {
@@ -202,8 +213,9 @@ export class Desktop extends Stack {
     userData.addCommands(
       "set -euo pipefail",
       "export DEBIAN_FRONTEND=noninteractive",
-      "apt-get update",
-      "apt-get install -y curl unzip ca-certificates",
+      // First boot can race unattended-upgrades for the dpkg lock.
+      "apt-get -o DPkg::Lock::Timeout=600 update",
+      "apt-get -o DPkg::Lock::Timeout=600 install -y curl unzip ca-certificates",
       "curl --fail --location --retry 3 https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o /tmp/awscli.zip",
       "unzip -q /tmp/awscli.zip -d /tmp/awscli",
       "/tmp/awscli/aws/install",

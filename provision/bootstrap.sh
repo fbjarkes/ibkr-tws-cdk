@@ -6,8 +6,8 @@ cd /opt/tws-provision
 run_hooks() { local stage="$1"; while IFS= read -r script; do bash "$script"; done < <(find "hooks/$stage" -maxdepth 1 -type f -name '*.sh' | sort); }
 run_hooks pre-install
 mapfile -t packages < <(sed 's/#.*//; /^[[:space:]]*$/d' packages.txt)
-apt-get update
-apt-get install -y "${packages[@]}"
+apt-get -o DPkg::Lock::Timeout=600 update
+apt-get -o DPkg::Lock::Timeout=600 install -y "${packages[@]}"
 systemctl stop xrdp xrdp-sesman || true
 # Match the Nitro NVMe serial to the configured volume ID. Never guess /dev/nvme1n1.
 serial="${DATA_VOLUME_ID//-/}"
@@ -29,8 +29,11 @@ elif [ "$fs" != ext4 ]; then
 fi
 mkdir -p /srv/tws
 uuid=$(blkid -s UUID -o value "$disk")
-printf 'UUID=%s /srv/tws ext4 defaults 0 2\n' "$uuid" >> /etc/fstab
-mount /srv/tws
+add_fstab() { grep -qxF "$1" /etc/fstab || printf '%s\n' "$1" >> /etc/fstab; }
+add_fstab "UUID=$uuid /srv/tws ext4 defaults 0 2"
+mountpoint -q /srv/tws || mount /srv/tws
+# Grow the filesystem after dataGiB is increased; a no-op when sizes already match.
+resize2fs "$disk"
 id trader &>/dev/null || useradd --uid 1100 --create-home --shell /bin/bash trader
 [ "$(id -u trader)" = 1100 ] || { echo 'Unexpected trader UID'; exit 1; }
 if [ ! -d /srv/tws/home ]; then
@@ -38,8 +41,8 @@ if [ ! -d /srv/tws/home ]; then
   cp -a /home/trader/. /srv/tws/home/
   chown -R trader:trader /srv/tws/home
 fi
-printf '/srv/tws/home /home/trader none bind 0 0\n' >> /etc/fstab
-mount /home/trader
+add_fstab '/srv/tws/home /home/trader none bind 0 0'
+mountpoint -q /home/trader || mount /home/trader
 # Public-key authentication only, independent of the password used for RDP.
 install -d -o root -g root -m 0755 /etc/ssh/authorized_keys /run/sshd
 if [ -n "$SSH_AUTHORIZED_KEYS_B64" ]; then

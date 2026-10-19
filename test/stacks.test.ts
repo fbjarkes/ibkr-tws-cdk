@@ -64,4 +64,14 @@ test("persistent disk, IP-restricted RDP ingress and least-privilege defaults", 
   const serialized = JSON.stringify(template.toJSON());
   if (serialized.includes("s3:PutObject"))
     throw new Error("Read-only bucket must not grant writes");
+  if (serialized.includes("assets-123456789012-eu-north-1/*"))
+    throw new Error("Provisioning read must be scoped to its own asset object");
+  const statements = Object.values<any>(template.toJSON().Resources)
+    .filter((resource) => resource.Type === "AWS::IAM::Policy")
+    .flatMap((resource) => resource.Properties.PolicyDocument.Statement);
+  const deny = statements.find(
+    (statement) => statement.Effect === "Deny" && statement.Resource === "*",
+  );
+  if (!deny?.Action.includes("ssm:GetParameter"))
+    throw new Error("Without a password parameter, all SSM parameter reads must be denied");
 });

@@ -174,7 +174,7 @@ Herdr sessions can keep running while SSH is disconnected, but an EC2 stop/rebui
 
 ## Storage sizing
 
-Defaults are 20 GiB root and 50 GiB persistent data, configurable with `rootGiB` and `dataGiB`. Monitor root space, particularly apt updates, logs and s3fs temporary storage. This changes defaults for a new deployment: **an existing EBS data volume cannot be shrunk in place**. If the 100 GiB volume has already been deployed, retain its size in local configuration until you explicitly migrate files to a new smaller volume. A smaller root disk needs a fresh desktop deployment as well. No disk migration or AWS deployment is performed by editing these files.
+Defaults are 20 GiB root and 50 GiB persistent data, configurable with `rootGiB` and `dataGiB`. Monitor root space, particularly apt updates, logs and s3fs temporary storage. This changes defaults for a new deployment: **an existing EBS data volume cannot be shrunk in place**. Growing `dataGiB` resizes the volume on a `TwsFoundation` deploy; the ext4 filesystem is grown on the next desktop rebuild, or immediately with `sudo resize2fs` on the data disk. If the 100 GiB volume has already been deployed, retain its size in local configuration until you explicitly migrate files to a new smaller volume. A smaller root disk needs a fresh desktop deployment as well. No disk migration or AWS deployment is performed by editing these files.
 
 ## Customize like a provisioning recipe
 

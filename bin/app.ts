@@ -1,3 +1,4 @@
+import { loadRdpCidr } from "../lib/access";
 import { App } from "aws-cdk-lib";
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
@@ -9,7 +10,7 @@ const base = JSON.parse(
 const local = existsSync(resolve("config/local.json"))
   ? JSON.parse(readFileSync(resolve("config/local.json"), "utf8"))
   : {};
-const config: Config = { ...base, ...local };
+const config: Config = { ...base, ...local, rdpCidr: loadRdpCidr() };
 if (!config.availabilityZone.startsWith(config.region))
   throw new Error("Availability zone must match region");
 if (

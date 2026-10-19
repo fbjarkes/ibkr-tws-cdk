@@ -24,12 +24,12 @@ function Invoke-Aws {
 $instance = Invoke-Aws -CliArgs @('cloudformation','describe-stacks','--stack-name','TwsDesktop','--query',"Stacks[0].Outputs[?OutputKey=='InstanceId'].OutputValue | [0]",'--output','text')
 if ($instance -notmatch '^i-[a-f0-9]+$') { throw 'Could not resolve desktop instance ID' }
 switch ($Action) {
-  'status' { Invoke-Aws -CliArgs @('ec2','describe-instances','--instance-ids',$instance,'--query','Reservations[0].Instances[0].{Id:InstanceId,State:State.Name,Type:InstanceType}','--output','table') }
+  'status' { Invoke-Aws -CliArgs @('ec2','describe-instances','--instance-ids',$instance,'--query','Reservations[0].Instances[0].{Id:InstanceId,State:State.Name,Type:InstanceType,PublicIp:PublicIpAddress}','--output','table') }
   'session' { Invoke-Aws -CliArgs @('ssm','start-session','--target',$instance) }
   'start' {
     Invoke-Aws -CliArgs @('ec2','start-instances','--instance-ids',$instance) | Out-Null
     Invoke-Aws -CliArgs @('ec2','wait','instance-status-ok','--instance-ids',$instance)
-    Write-Host 'EC2 checks passed. RDP becomes available after Tailscale and the desktop services start.'
+    Write-Host 'EC2 checks passed. Use the status command to obtain the current public IPv4 for RDP; desktop services may need a little longer to start.'
   }
   { $_ -in 'stop','down' } {
     $state = Invoke-Aws -CliArgs @('ec2','describe-instances','--instance-ids',$instance,'--query','Reservations[0].Instances[0].State.Name','--output','text')

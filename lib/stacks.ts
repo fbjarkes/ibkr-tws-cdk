@@ -10,6 +10,7 @@ import {
   aws_s3_assets as assets,
   aws_dlm as dlm,
 } from "aws-cdk-lib";
+import { ipv4HostCidr } from "./access";
 import { Construct } from "constructs";
 import { resolve } from "node:path";
 export interface Config {
@@ -21,6 +22,7 @@ export interface Config {
   prefix: string;
   s3ReadWrite: boolean;
   amiId: string;
+  rdpCidr: string;
 }
 export class Foundation extends Stack {
   readonly vpc: ec2.Vpc;
@@ -88,13 +90,13 @@ export class Desktop extends Stack {
     const sg = new ec2.SecurityGroup(this, "DesktopSecurityGroup", {
       vpc: foundation.vpc,
       description:
-        "Tailscale encrypted transport only; no public RDP, SSH or TWS API",
+        "RDP from one configured IPv4 host only; no SSH or TWS API ingress",
       allowAllOutbound: true,
     });
     sg.addIngressRule(
-      ec2.Peer.anyIpv4(),
-      ec2.Port.udp(41641),
-      "Tailscale WireGuard transport",
+      ec2.Peer.ipv4(ipv4HostCidr(config.rdpCidr)),
+      ec2.Port.tcp(3389),
+      "RDP from configured client IPv4",
     );
     const role = new iam.Role(this, "InstanceRole", {
       assumedBy: new iam.ServicePrincipal("ec2.amazonaws.com"),

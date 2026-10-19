@@ -40,20 +40,16 @@ if [ ! -d /srv/tws/home ]; then
 fi
 printf '/srv/tws/home /home/trader none bind 0 0\n' >> /etc/fstab
 mount /home/trader
-# Persist the Tailscale identity across exclusive desktop replacements.
-curl --fail --location --retry 3 https://pkgs.tailscale.com/stable/ubuntu/noble.noarmor.gpg -o /usr/share/keyrings/tailscale-archive-keyring.gpg
-curl --fail --location --retry 3 https://pkgs.tailscale.com/stable/ubuntu/noble.tailscale-keyring.list -o /etc/apt/sources.list.d/tailscale.list
-apt-get update
-apt-get install -y tailscale
-systemctl stop tailscaled
-install -d -m 0700 /srv/tws/tailscale /var/lib/tailscale
-printf '/srv/tws/tailscale /var/lib/tailscale none bind 0 0\n' >> /etc/fstab
-mount /var/lib/tailscale
-systemctl enable --now tailscaled
-# RDP listens only on the Tailscale IPv4 address, never the public interface.
-install -m 0755 files/tws-start-rdp /usr/local/sbin/tws-start-rdp
-install -m 0644 files/tws-rdp.service /etc/systemd/system/tws-rdp.service
-systemctl disable xrdp xrdp-sesman
+# Standard RDP listener; the EC2 security group allows one configured client IPv4.
+sed -i '0,/^port=/{s|^port=.*|port=tcp://0.0.0.0:3389|;}' /etc/xrdp/xrdp.ini
+# Require TLS for the direct RDP connection.
+sed -i 's/^security_layer=.*/security_layer=tls/' /etc/xrdp/xrdp.ini
+# Preserve the remote desktop session when the client disconnects.
+sed -i 's/^KillDisconnected=.*/KillDisconnected=false/; s/^DisconnectedTimeLimit=.*/DisconnectedTimeLimit=0/' /etc/xrdp/sesman.ini
+mkdir -p /etc/systemd/system/xrdp.service.d /etc/systemd/system/xrdp-sesman.service.d
+for service in xrdp xrdp-sesman; do
+  printf '[Unit]\nRequiresMountsFor=/home/trader\n' > "/etc/systemd/system/$service.service.d/persistent-home.conf"
+done
 adduser xrdp ssl-cert
 if [ ! -f /home/trader/.xsession ]; then
   printf 'exec startxfce4\n' > /home/trader/.xsession
@@ -104,6 +100,6 @@ fi
 install -m 0644 files/tws-custom-boot.service /etc/systemd/system/tws-custom-boot.service
 systemctl daemon-reload
 systemctl enable --now tws-custom-boot.service
-systemctl enable --now tws-rdp.service
+systemctl enable --now xrdp-sesman.service xrdp.service
 touch /var/lib/tws-bootstrap-complete
-echo 'Bootstrap complete. Enroll Tailscale and set trader password using SSM.'
+echo 'Bootstrap complete. Set the trader password using SSM, then connect to the public IPv4 using RDP.'

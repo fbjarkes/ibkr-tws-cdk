@@ -6,8 +6,8 @@ First iteration of a persistent Ubuntu desktop for Interactive Brokers TWS. Type
 
 - `TwsFoundation`: one public subnet in a fixed Availability Zone, no NAT gateway, encrypted retained 100 GiB gp3 data disk, daily snapshots at 02:00 UTC with seven retained snapshots. Foundation termination protection is enabled in the CDK app.
 - `TwsDesktop`: On-Demand m7i.xlarge (4 vCPU / 16 GiB), Ubuntu 24.04 x86-64, encrypted disposable 40 GiB root disk, IMDSv2, SSM access and a narrowly scoped instance role. No SSH key.
-- Public IPv4 enables outbound access. Only UDP 41641 (encrypted Tailscale transport) is open inbound. RDP is additionally bound to the Tailscale IPv4 address. There is no public RDP/SSH/TWS API listener. Define Tailscale grants restricting access to your own devices; tailnet membership alone is not the intended authorization policy.
-- `/srv/tws/home` is bind-mounted at `/home/trader`. Put TWS and its settings there. `/srv/tws/tailscale` preserves the machine identity across exclusive rebuilds. Never run two instances with this data/identity. The instance is tied to the data volume's AZ; this is not high availability.
+- Public IPv4 enables direct RDP access and outbound connectivity. The security group permits TCP 3389 only from the single IPv4 host in `IP_ADDRESS` (`/32`). SSH and the TWS API have no inbound rules. Tailscale is deferred and is not installed.
+- `/srv/tws/home` is bind-mounted at `/home/trader`. Put TWS and its settings there. Never attach this disk to two desktop instances simultaneously. The instance is tied to the data volume's AZ; this is not high availability.
 - Root packages are recreated on rebuild. Home files survive, but running sessions, unsaved work and the trader password do not. Set the password after each rebuild. Existing snapshots are crash-consistent; close apps before taking a manual snapshot for a known clean recovery point.
 
 ## Architecture
@@ -16,9 +16,8 @@ The diagram shows the current CDK configuration. TWS is installed manually, and 
 
 ```mermaid
 flowchart TB
-  client["Win11 / Debian / macOS<br/>RDP client + Tailscale"]
+  client["Win11 / Debian / macOS<br/>RDP client · allowed public IPv4"]
   dev["Developer workstation<br/>Git · CDK · AWS CLI"]
-  ts["Tailscale coordination / relay<br/>External service"]
   ib["Interactive Brokers<br/>External service"]
 
   subgraph account["AWS account"]
@@ -33,13 +32,13 @@ flowchart TB
         subgraph vpc["Amazon VPC — single-AZ subnet layout"]
           igw["Internet Gateway<br/>Public subnet route: 0.0.0.0/0"]
           subgraph subnet["Public subnet — eu-north-1a · no NAT gateway"]
-            subgraph sg["Security group attached to EC2 ENI<br/>Inbound: UDP 41641 only · Outbound: all"]
-              ec2["Amazon EC2 — m7i.xlarge<br/>Ubuntu 24.04 · 4 vCPU · 16 GiB<br/>Public IPv4 · IMDSv2 required<br/>Tailscale → xrdp / XFCE<br/>TWS installed manually · LibreOffice · browser<br/>SSM Agent · rclone"]
+            subgraph sg["Security group attached to EC2 ENI<br/>Inbound: TCP 3389 from IP_ADDRESS/32 · Outbound: all"]
+              ec2["Amazon EC2 — m7i.xlarge<br/>Ubuntu 24.04 · 4 vCPU · 16 GiB<br/>Public IPv4 · IMDSv2 required<br/>xrdp / XFCE<br/>TWS installed manually · LibreOffice · browser<br/>SSM Agent · rclone"]
             end
           end
         end
         root["Amazon EBS — encrypted gp3 · 40 GiB<br/>Root OS disk · eu-north-1a<br/>Deleted with desktop instance"]
-        data["Amazon EBS — encrypted gp3 · 100 GiB<br/>eu-north-1a · Home, TWS files, S3 cache<br/>Persistent Tailscale identity<br/>Retained across desktop rebuilds"]
+        data["Amazon EBS — encrypted gp3 · 100 GiB<br/>eu-north-1a · Home, TWS files, S3 cache<br/>Retained across desktop rebuilds"]
     end
   end
 
@@ -48,9 +47,8 @@ flowchart TB
   dev -->|"AWS-authenticated recovery and commands"| ssm
   cf -.->|"Provision / manage"| ec2
   cf -.->|"Provision / retain"| data
-  client <-->|"Encrypted Tailscale tunnel<br/>RDP 3389 inside tunnel"| igw
+  client <-->|"RDP TLS · TCP 3389<br/>Source IP_ADDRESS/32 only"| igw
   igw <--> ec2
-  ec2 <-->|"Network path via Internet Gateway"| ts
   ec2 <-->|"Outbound network path via Internet Gateway"| ib
   ec2 -->|"HTTPS via Internet Gateway<br/>Download provisioning asset"| assets
   ec2 <-->|"HTTPS via Internet Gateway<br/>Optional rclone mount"| s3
@@ -73,6 +71,8 @@ Node.js 22 LTS (current maintained patch) or newer supported LTS, npm, AWS CLI v
 
 ```powershell
 npm ci
+# .env is created locally; on a fresh clone use: Copy-Item .env.example .env
+# Edit .env and set IP_ADDRESS to your client public IPv4 (not the EC2 IP).
 # Optional: copy config/workstation.json to config/local.json and edit overrides.
 npm run build
 npm test
@@ -82,6 +82,30 @@ npm run synth
 Defaults: Stockholm (`eu-north-1` / `eu-north-1a`), no S3 mount. Set `bucket` to your chosen bucket (for example `my-tws-files`), optional `prefix`, and explicitly opt into `s3ReadWrite`. A configured prefix must not contain shell metacharacters or spaces. Select the bucket's region when practical; cross-region S3 traffic may cost extra. SSE-KMS buckets may additionally require narrowly scoped KMS permissions and key policy access.
 
 The AMI is resolved from Canonical's public SSM parameter at deployment time. Set `amiId` to a reviewed Ubuntu 24.04 amd64 image for repeatable rebuilds. Apt packages follow Ubuntu repositories unless pinned with `name=version`; this iteration is not a bit-for-bit reproducible image build.
+
+## Client IP configuration
+
+The local, Git-ignored `.env` file contains:
+
+```dotenv
+# Replace with your actual public client IPv4; this is a documentation example.
+IP_ADDRESS=203.0.113.10
+```
+
+The initially created local file is blank on purpose: fill it before synthesis/deployment. A plain IPv4 or IPv4 with `/32` is accepted; missing/invalid values, IPv6 and wider CIDRs fail synthesis. The address is the public source seen by AWS (your router/VPN egress), not your LAN address or the EC2 destination address. No automatic external IP discovery is performed.
+
+CDK reads the file on every app invocation, including `diff` and `deploy`. The file takes precedence over an inherited shell `IP_ADDRESS`; if absent, an environment variable can supply it for CI. Only this variable is read; the entire file is not exported or copied onto EC2. The source IP appears in the CloudFormation template/security-group rule, and in local `cdk.out` (also Git-ignored).
+
+After changing only `IP_ADDRESS`:
+
+```powershell
+npx cdk diff TwsDesktop --profile poweruser
+npx cdk deploy TwsDesktop --profile poweruser
+```
+
+This updates the security-group ingress rule in place, removing the old address and adding the new one. The IP is deliberately excluded from user data and provisioning assets, so an IP-only edit does not replace/reboot EC2 or reinstall applications. A regression test verifies this. AWS CLI/CDK access does not depend on the RDP allowlist, so you can make this update from your new network. Reconnect RDP after deployment.
+
+Use the normal CDK app, not `--app cdk.out` or another previously synthesized assembly: a saved assembly retains its old IP until re-synthesized. Editing the file alone changes nothing in AWS; `diff` previews and `deploy` applies it. If other configuration or assets also changed, inspect the full diff for replacements. `cdk bootstrap` prepares deployment support resources; the client IP takes effect when deploying `TwsDesktop`, not during toolkit bootstrapping.
 
 ## Deploy (creates billable resources)
 
@@ -105,13 +129,10 @@ In the SSM shell:
 
 ```bash
 sudo passwd trader
-sudo tailscale up --hostname=tws-workstation
-# Follow the enrollment link, apply your tailnet access policy, then:
-sudo tailscale ip -4
-sudo systemctl status tws-rdp
+sudo systemctl status xrdp
 ```
 
-Enroll only on initial setup or when reauthentication is needed; subsequent rebuilds reuse the persisted Tailscale state. On Win11 open `mstsc` and connect to the Tailscale IPv4 address with username `trader`. Use Ubuntu's Xorg session supplied by xrdp. Disconnecting preserves the session while the instance runs; logging out ends it. Only use this remote desktop session for the trader user.
+Run `.\scripts\workstation.ps1 status` to get the instance's current public IPv4. On Win11 open `mstsc` and connect to that address with username `trader` from the allowed client IP. The default xrdp certificate is self-signed; validate the server identity before accepting the certificate prompt. Use Ubuntu's Xorg session supplied by xrdp. Disconnecting preserves the session while the instance runs; logging out ends it. Only use this remote desktop session for the trader user. The public address can change after stop/start; use `status` again rather than relying on a saved destination.
 
 TWS itself is **not silently downloaded or installed** in v0.1. Obtain the Linux installer from Interactive Brokers, run it as trader, and select a directory beneath `/home/trader` (for example `/home/trader/Jts`). Enable API socket clients, prefer localhost-only access, and keep credentials out of provisioning. For automation add a reviewed, version/checksum-pinned installer in a post-install hook, running the actual install as trader. IBKR login/MFA remains interactive. Sizing and responsiveness need validation with your TWS layout before relying on it for trading.
 
@@ -125,7 +146,7 @@ TWS itself is **not silently downloaded or installed** in v0.1. Obtain the Linux
 - `provision/hooks/every-boot/*.sh`: root commands via systemd every boot, after persistent mounts.
 - GUI commands: trader's `~/.config/autostart/`. Seed user settings only if absent. Use `runuser -u trader -- ...` for non-root commands, with an explicit working directory as needed.
 
-Hooks run alphabetically and fail on nonzero exit. Write idempotent scripts. CDK uploads the provision directory as an asset; no Git credentials on the instance. Asset changes alter user data and force a desktop replacement. **Use clean `down` followed by deploy for provisioning changes**, not an in-place deployment against a running instance. A direct replacement can race attachment of the single-AZ disk or interrupt applications. Update protection and `cdk diff` review are essential; do not rename foundation constructs or change its AZ casually.
+Hooks run alphabetically and fail on nonzero exit. Write idempotent scripts. CDK uploads the provision directory as an asset; no Git credentials on the instance. Asset changes alter user data and force a desktop replacement. **Use clean `down` followed by deploy for provisioning changes** (an IP-only security-group edit does not need this), not an in-place deployment against a running instance. A direct replacement can race attachment of the single-AZ disk or interrupt applications. Update protection and `cdk diff` review are essential; do not rename foundation constructs or change its AZ casually.
 
 ## S3
 
@@ -152,5 +173,5 @@ EBS, snapshots and CDK assets continue to cost money with compute down; public I
 
 - [CDK assets](https://docs.aws.amazon.com/cdk/v2/guide/assets.html)
 - [EC2 user data](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/user-data.html)
-- [Tailscale server setup](https://tailscale.com/docs/how-to/set-up-servers)
+- [EC2 security-group changes](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/changing-security-group.html)
 - [Canonical Ubuntu AMI discovery](https://documentation.ubuntu.com/aws/aws-how-to/instances/find-ubuntu-images/)

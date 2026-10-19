@@ -13,3 +13,5 @@ config/local.json
 *.key
 *.p12
 *.pfx
+
+# .env includes the private client IP; cdk.out includes synthesized CIDR rules.

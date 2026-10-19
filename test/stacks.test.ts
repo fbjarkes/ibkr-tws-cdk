@@ -2,7 +2,7 @@ import { test } from "node:test";
 import { App } from "aws-cdk-lib";
 import { Template, Match } from "aws-cdk-lib/assertions";
 import { Foundation, Desktop, Config } from "../lib/stacks";
-test("persistent disk, transport-only ingress and least-privilege defaults", () => {
+test("persistent disk, IP-restricted RDP ingress and least-privilege defaults", () => {
   const app = new App();
   const config: Config = {
     region: "eu-north-1",
@@ -13,6 +13,7 @@ test("persistent disk, transport-only ingress and least-privilege defaults", () 
     prefix: "reports",
     s3ReadWrite: false,
     amiId: "ami-0123456789abcdef0",
+    rdpCidr: "203.0.113.10/32",
   };
   const env = { account: "123456789012", region: config.region };
   const foundation = new Foundation(app, "TwsFoundation", { env }, config);
@@ -29,11 +30,11 @@ test("persistent disk, transport-only ingress and least-privilege defaults", () 
   template.hasResourceProperties("AWS::EC2::SecurityGroup", {
     SecurityGroupIngress: [
       {
-        CidrIp: "0.0.0.0/0",
-        Description: "Tailscale WireGuard transport",
-        FromPort: 41641,
-        IpProtocol: "udp",
-        ToPort: 41641,
+        CidrIp: "203.0.113.10/32",
+        Description: "RDP from configured client IPv4",
+        FromPort: 3389,
+        IpProtocol: "tcp",
+        ToPort: 3389,
       },
     ],
   });

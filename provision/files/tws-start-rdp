@@ -1,7 +1,0 @@
-#!/usr/bin/env bash
-set -euo pipefail
-# Wait for interactive initial enrollment; retry if the interface is not ready yet.
-address=$(tailscale ip -4 2>/dev/null | head -n 1)
-[ -n "$address" ] || exit 1
-sed -i "0,/^port=/{s|^port=.*|port=tcp://$address:3389|;}" /etc/xrdp/xrdp.ini
-exec /usr/sbin/xrdp --nodaemon

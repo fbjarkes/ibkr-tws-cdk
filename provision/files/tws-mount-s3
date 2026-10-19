@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set +x
+set -euo pipefail
+bucket="$S3_BUCKET"
+if [ -n "$S3_PREFIX" ]; then bucket="$bucket:/${S3_PREFIX%/}"; fi
+options=(-o "endpoint=$S3_REGION" -o "url=https://s3.$S3_REGION.amazonaws.com" -o use_path_request_style -o allow_other -o "uid=$(id -u trader)" -o "gid=$(id -g trader)" -o mp_umask=022 -o compat_dir)
+if [ -n "${PARAM_STORE_KEY_S3_PASSWD:-}" ]; then
+  options+=(-o passwd_file=/etc/passwd-s3fs)
+else
+  options+=(-o iam_role=auto)
+fi
+if [ "$S3_WRITABLE" != true ]; then options+=(-o ro); fi
+exec /usr/bin/s3fs "$bucket" /mnt/watchlists -f "${options[@]}"

@@ -27,18 +27,19 @@ flowchart TB
       assets["Amazon S3<br/>CDK bootstrap asset bucket<br/>Provisioning scripts and files"]
       s3["Amazon S3 — optional existing bucket<br/>Selected bucket / prefix<br/>Read-only by default"]
       ssm["AWS Systems Manager<br/>Session Manager / Run Command"]
+      params["SSM Parameter Store — optional<br/>SecureString s3fs credentials · KMS encryption"]
       dlm["Amazon Data Lifecycle Manager<br/>Daily snapshots at 02:00 UTC"]
       snapshots["Amazon EBS snapshots<br/>Retain seven daily snapshots"]
         subgraph vpc["Amazon VPC — single-AZ subnet layout"]
           igw["Internet Gateway<br/>Public subnet route: 0.0.0.0/0"]
           subgraph subnet["Public subnet — eu-north-1a · no NAT gateway"]
             subgraph sg["Security group attached to EC2 ENI<br/>Inbound: TCP 3389 from IP_ADDRESS/32 · Outbound: all"]
-              ec2["Amazon EC2 — m7i.xlarge<br/>Ubuntu 24.04 · 4 vCPU · 16 GiB<br/>Public IPv4 · IMDSv2 required<br/>xrdp / XFCE<br/>TWS installed manually · LibreOffice · browser<br/>SSM Agent · rclone"]
+              ec2["Amazon EC2 — m7i.xlarge<br/>Ubuntu 24.04 · 4 vCPU · 16 GiB<br/>Public IPv4 · IMDSv2 required<br/>xrdp / XFCE<br/>TWS installed manually · LibreOffice · browser<br/>SSM Agent · s3fs"]
             end
           end
         end
         root["Amazon EBS — encrypted gp3 · 40 GiB<br/>Root OS disk · eu-north-1a<br/>Deleted with desktop instance"]
-        data["Amazon EBS — encrypted gp3 · 100 GiB<br/>eu-north-1a · Home, TWS files, S3 cache<br/>Retained across desktop rebuilds"]
+        data["Amazon EBS — encrypted gp3 · 100 GiB<br/>eu-north-1a · Home and TWS files<br/>Retained across desktop rebuilds"]
     end
   end
 
@@ -51,8 +52,9 @@ flowchart TB
   igw <--> ec2
   ec2 <-->|"Outbound network path via Internet Gateway"| ib
   ec2 -->|"HTTPS via Internet Gateway<br/>Download provisioning asset"| assets
-  ec2 <-->|"HTTPS via Internet Gateway<br/>Optional rclone mount"| s3
+  ec2 <-->|"HTTPS via Internet Gateway<br/>Optional s3fs mount"| s3
   ec2 -->|"Outbound HTTPS via Internet Gateway"| ssm
+  ec2 -->|"GetParameter with decryption<br/>Optional password-file mode"| params
   iam -.->|"Temporary role credentials"| ec2
   iam -.->|"Snapshot permissions"| dlm
   ec2 --- root
@@ -94,7 +96,7 @@ IP_ADDRESS=203.0.113.10
 
 The initially created local file is blank on purpose: fill it before synthesis/deployment. A plain IPv4 or IPv4 with `/32` is accepted; missing/invalid values, IPv6 and wider CIDRs fail synthesis. The address is the public source seen by AWS (your router/VPN egress), not your LAN address or the EC2 destination address. No automatic external IP discovery is performed.
 
-CDK reads the file on every app invocation, including `diff` and `deploy`. The file takes precedence over an inherited shell `IP_ADDRESS`; if absent, an environment variable can supply it for CI. Only this variable is read; the entire file is not exported or copied onto EC2. The source IP appears in the CloudFormation template/security-group rule, and in local `cdk.out` (also Git-ignored).
+CDK reads the file on every app invocation, including `diff` and `deploy`. The file takes precedence over an inherited shell `IP_ADDRESS`; if absent, an environment variable can supply it for CI. The app reads only the named settings documented here; the entire file is not exported or copied onto EC2. The source IP appears in the CloudFormation template/security-group rule, and in local `cdk.out` (also Git-ignored).
 
 After changing only `IP_ADDRESS`:
 
@@ -150,7 +152,30 @@ Hooks run alphabetically and fail on nonzero exit. Write idempotent scripts. CDK
 
 ## S3
 
-Optional rclone mount starts at desktop login at `/home/trader/S3`; IAM credentials come from the instance role. Defaults to read-only, uses full VFS cache (20 GiB target) on the persistent disk. The local rclone control API uses a generated password and binds to loopback only; this is a single-user trusted desktop. Cache limits are not hard disk quotas. S3 is not a shared POSIX filesystem; edit critical documents locally and publish them after saving. Do not edit the same object from multiple machines.
+An optional s3fs systemd service mounts the configured bucket/prefix at `/mnt/watchlists`, during bootstrap and every boot (not just desktop login). Set `bucket`, `prefix` (default `watchlists`), and `s3Region` in configuration. The prefix must already exist and the credentials must permit s3fs's metadata/list operations there. `s3ReadWrite` defaults to false; set it to true to enable saving files. This adds `-o ro` when false, including in password-file mode.
+
+The mount uses `endpoint`, regional HTTPS `url`, `use_path_request_style`, `allow_other`, `mp_umask=022`, and `compat_dir`, as in the proposed script. UID/GID come from `id trader` (UID 1100), not an assumed 1000. It runs in the foreground under systemd; no local HTTP control API or persistent VFS cache is used. s3fs can still use temporary local disk space while handling files.
+
+Two credential modes:
+
+1. **Instance role**: leave `PARAM_STORE_KEY_S3_PASSWD` blank. s3fs uses `iam_role=auto` and temporary credentials. CDK grants the instance role access to the configured S3 prefix.
+2. **Password file from Parameter Store**: create a **SecureString** parameter in the stack region, containing one line in the format `ACCESS_KEY_ID:SECRET_ACCESS_KEY`. Use a dedicated IAM user's key with access limited to the bucket/prefix. Store the complete password-file line as the parameter value, using the AWS console or another secure administration workflow. Never put that value in `.env`, shell history, Git or CDK context.
+
+For password-file mode, set only references in local `.env`:
+
+```dotenv
+PARAM_STORE_KEY_S3_PASSWD=/ibkr-tws/s3fs/passwd
+# Optional: ARN of the customer-managed KMS key encrypting this parameter.
+S3_PASSWD_KMS_KEY_ARN=
+```
+
+CDK does not fetch or resolve the secret during synthesis/deployment. EC2 runs `aws ssm get-parameter --with-decryption` when the mount service starts; the response is processed in a root-only temporary directory under `/run` and deleted. The helper validates SecureString type and credential format, then atomically installs `/etc/passwd-s3fs` with owner root and mode 0600 on the encrypted root disk. It never prints the value. Missing parameters, permission errors or invalid contents fail service startup and initial bootstrap. Nothing is created in Parameter Store by this project.
+
+The instance role can read the selected parameter. An explicit deny prevents the SSM core managed policy's broad `GetParameter/GetParameters` grants from reading other parameters in this mode (SSM features that need additional parameters would require deliberately revising this restriction). For a customer-managed key, CDK grants `kms:Decrypt` on that key, restricted to SSM and the selected parameter's encryption context; the key policy must also allow it. With the default `aws/ssm` key, no additional key ARN is required. Parameter and key must be in the stack account/region. These credentials authorize the s3fs S3 requests independently of the EC2 role; scope the IAM user's S3 policy separately. Bucket SSE-KMS permissions are a separate concern.
+
+The service fetches the latest parameter value at each boot or `sudo systemctl restart tws-s3fs`. Close all files first. Rotating the **value at the same parameter name** needs no CDK deploy; restart the service or instance to pick it up. Changing the **parameter name**, S3 configuration or provisioning assets changes bootstrap and requires a reviewed desktop rebuild. The actual secret remains readable to root and is necessarily used locally by s3fs; it is not exposed in CloudFormation templates or the CDK asset.
+
+Inspect with `sudo systemctl status tws-s3fs` and `sudo journalctl -u tws-s3fs`. S3 is not a shared POSIX filesystem; avoid concurrent editing of the same object from multiple machines. Close/save applications before shutdown. The lifecycle helper syncs and performs a normal unmount, refusing a busy/failed unmount; there is no forced or lazy unmount fallback. A clean unmount is not a guarantee against every remote service failure, so verify important saves.
 
 ## Daily lifecycle
 
@@ -165,7 +190,7 @@ Optional rclone mount starts at desktop login at `/home/trader/S3`; IAM credenti
 npx cdk deploy TwsDesktop --profile poweruser
 ```
 
-Stop/down checks common application processes, refuses pending/errored S3 uploads, unmounts S3 and syncs before stopping. It does not force-close applications and is not an exhaustive detector for arbitrary custom apps. Do not restart writers after initiating shutdown. If checks fail, inspect SSM command output and fix the issue; there is no force-delete fallback. If already stopped, down skips remote checks. Stopping is a normal shutdown, not hibernation. No automatic daily shutdown schedule is installed in this iteration.
+Stop/down checks common application processes, syncs and normally unmounts s3fs before stopping. A busy or failed unmount aborts the operation. It does not force-close applications and is not an exhaustive detector for arbitrary custom apps. Do not restart writers after initiating shutdown. If checks fail, inspect SSM command output and fix the issue; there is no force-delete fallback. If already stopped, down skips remote checks. Stopping is a normal shutdown, not hibernation. No automatic daily shutdown schedule is installed in this iteration.
 
 EBS, snapshots and CDK assets continue to cost money with compute down; public IPv4 is charged while allocated/running. Foundation deletion is intentionally protected and retains the disk; retained resources/snapshots require a separate deliberate cleanup. No resources are deleted automatically from existing S3 buckets. Test deployment/rebuild/reconnect/restore with a paper account before production use.
 
@@ -175,3 +200,6 @@ EBS, snapshots and CDK assets continue to cost money with compute down; public I
 - [EC2 user data](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/user-data.html)
 - [EC2 security-group changes](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/changing-security-group.html)
 - [Canonical Ubuntu AMI discovery](https://documentation.ubuntu.com/aws/aws-how-to/instances/find-ubuntu-images/)
+
+- [s3fs options and credential files](https://github.com/s3fs-fuse/s3fs-fuse/blob/master/doc/man/s3fs.1.in)
+- [Parameter Store SecureString encryption](https://docs.aws.amazon.com/systems-manager/latest/userguide/secure-string-parameter-kms-encryption.html)

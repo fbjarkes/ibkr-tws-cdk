@@ -55,43 +55,30 @@ if [ ! -f /home/trader/.xsession ]; then
   printf 'exec startxfce4\n' > /home/trader/.xsession
   chown trader:trader /home/trader/.xsession
 fi
-mkdir -p /home/trader/.config/autostart /home/trader/.config/rclone /home/trader/S3 /home/trader/.cache/rclone
+mkdir -p /home/trader/.config/autostart
+# Remove the obsolete desktop autostart entry when reusing a persistent home.
+rm -f /home/trader/.config/autostart/tws-s3.desktop
 if [ -n "$S3_BUCKET" ]; then
-  cat > /home/trader/.config/rclone/tws.conf <<EOF
-[tws]
-type = s3
-provider = AWS
-env_auth = true
-region = $AWS_DEFAULT_REGION
+  install -d -o trader -g trader -m 0755 /mnt/watchlists
+  install -m 0755 files/tws-fetch-s3-credentials /usr/local/sbin/tws-fetch-s3-credentials
+  install -m 0755 files/tws-mount-s3 /usr/local/sbin/tws-mount-s3
+  install -m 0755 files/tws-wait-s3 /usr/local/sbin/tws-wait-s3
+  install -m 0644 files/tws-s3fs.service /etc/systemd/system/tws-s3fs.service
+  umask 077
+  cat > /etc/tws-s3.env <<EOF
+S3_BUCKET=$S3_BUCKET
+S3_PREFIX=$S3_PREFIX
+S3_REGION=$S3_REGION
+S3_WRITABLE=$S3_WRITABLE
+AWS_DEFAULT_REGION=$AWS_DEFAULT_REGION
+PARAM_STORE_KEY_S3_PASSWD=$PARAM_STORE_KEY_S3_PASSWD
 EOF
-  if [ ! -f /home/trader/.config/rclone/rc-password ]; then
-    head -c 32 /dev/urandom | base64 > /home/trader/.config/rclone/rc-password
-  fi
-  chmod 0600 /home/trader/.config/rclone/rc-password
-  remote="tws:$S3_BUCKET"
-  [ -z "$S3_PREFIX" ] || remote="$remote/${S3_PREFIX%/}"
-  readonly_flag=--read-only
-  [ "$S3_WRITABLE" != true ] || readonly_flag=''
-  cat > /home/trader/.config/rclone/mount-s3.sh <<EOF
-#!/usr/bin/env bash
-set -euo pipefail
-export RCLONE_RC_USER=tws
-export RCLONE_RC_PASS=\$(cat /home/trader/.config/rclone/rc-password)
-exec rclone mount $remote /home/trader/S3 --config /home/trader/.config/rclone/tws.conf --vfs-cache-mode full --cache-dir /home/trader/.cache/rclone --vfs-cache-max-size 20G --rc --rc-addr 127.0.0.1:5572 $readonly_flag
-EOF
-  chmod 0700 /home/trader/.config/rclone/mount-s3.sh
-  cat > /home/trader/.config/autostart/tws-s3.desktop <<EOF
-[Desktop Entry]
-Type=Application
-Name=TWS S3 mount
-Exec=/home/trader/.config/rclone/mount-s3.sh
-Terminal=false
-EOF
+  chmod 0600 /etc/tws-s3.env
+  umask 022
 fi
 # Managed root overlay: provision/files/rootfs/etc/... becomes /etc/...
 cp -a files/rootfs/. /
 chown -R trader:trader /home/trader/.config
-chmod 0700 /home/trader/.config/rclone
 run_hooks post-install
 if [ ! -e /srv/tws/.first-use-complete ]; then
   run_hooks first-use
@@ -99,6 +86,7 @@ if [ ! -e /srv/tws/.first-use-complete ]; then
 fi
 install -m 0644 files/tws-custom-boot.service /etc/systemd/system/tws-custom-boot.service
 systemctl daemon-reload
+if [ -n "$S3_BUCKET" ]; then systemctl enable --now tws-s3fs.service; fi
 systemctl enable --now tws-custom-boot.service
 systemctl enable --now xrdp-sesman.service xrdp.service
 touch /var/lib/tws-bootstrap-complete

@@ -39,10 +39,12 @@ switch ($Action) {
       $check = @'
 set -eu
 if pgrep -u trader -f '(^|/)(java|soffice.bin|firefox)( |$)' >/dev/null; then echo 'Close desktop applications first'; exit 1; fi
-if mountpoint -q /home/trader/S3; then
-  stats=$(curl --fail --silent --show-error --user "tws:$(cat /home/trader/.config/rclone/rc-password)" -X POST http://127.0.0.1:5572/vfs/stats)
-  echo "$stats" | jq -e '.diskCache != null and .diskCache.uploadsQueued == 0 and .diskCache.uploadsInProgress == 0 and .diskCache.erroredFiles == 0' >/dev/null
-  fusermount3 -u /home/trader/S3
+if mountpoint -q /mnt/watchlists; then
+  sync -f /mnt/watchlists
+  umount /mnt/watchlists
+fi
+if systemctl is-active --quiet tws-s3fs.service; then
+  systemctl stop tws-s3fs.service
 fi
 sync
 '@

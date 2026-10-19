@@ -9,6 +9,6 @@ firefox
 git
 jq
 python3-venv
-rclone
+s3fs
 fuse3
 nvme-cli

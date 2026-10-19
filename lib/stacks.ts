@@ -23,6 +23,9 @@ export interface Config {
   s3ReadWrite: boolean;
   amiId: string;
   rdpCidr: string;
+  s3PasswdParameter?: string;
+  s3PasswdKmsKeyArn?: string;
+  s3Region?: string;
 }
 export class Foundation extends Stack {
   readonly vpc: ec2.Vpc;
@@ -110,7 +113,7 @@ export class Desktop extends Stack {
       path: resolve(__dirname, "../provision"),
     });
     asset.grantRead(role);
-    if (config.bucket) {
+    if (config.bucket && !config.s3PasswdParameter) {
       const prefix = config.prefix
         ? config.prefix.replace(/\/$/, "") + "/"
         : "";
@@ -146,6 +149,41 @@ export class Desktop extends Stack {
           resources: [`arn:${this.partition}:s3:::${config.bucket}/${prefix}*`],
         }),
       );
+    }
+    if (config.bucket && config.s3PasswdParameter) {
+      const parameterArn = this.formatArn({
+        service: "ssm",
+        resource: "parameter",
+        resourceName: config.s3PasswdParameter.slice(1),
+      });
+      role.addToPolicy(
+        new iam.PolicyStatement({
+          actions: ["ssm:GetParameter"],
+          resources: [parameterArn],
+        }),
+      );
+      // SSM's core managed policy otherwise allows parameter reads on '*'.
+      role.addToPolicy(
+        new iam.PolicyStatement({
+          effect: iam.Effect.DENY,
+          actions: ["ssm:GetParameter", "ssm:GetParameters"],
+          notResources: [parameterArn],
+        }),
+      );
+      if (config.s3PasswdKmsKeyArn) {
+        role.addToPolicy(
+          new iam.PolicyStatement({
+            actions: ["kms:Decrypt"],
+            resources: [config.s3PasswdKmsKeyArn],
+            conditions: {
+              StringEquals: {
+                "kms:ViaService": `ssm.${this.region}.${this.urlSuffix}`,
+                "kms:EncryptionContext:PARAMETER_ARN": parameterArn,
+              },
+            },
+          }),
+        );
+      }
     }
     role.addToPolicy(
       new iam.PolicyStatement({
@@ -206,6 +244,7 @@ export class Desktop extends Stack {
       "unzip -qo /tmp/provision.zip -d /opt/tws-provision",
       `export DATA_VOLUME_ID='${foundation.volume.volumeId}'`,
       `export S3_BUCKET='${config.bucket}' S3_PREFIX='${config.prefix}' S3_WRITABLE='${config.s3ReadWrite}' AWS_DEFAULT_REGION='${this.region}'`,
+      `export PARAM_STORE_KEY_S3_PASSWD='${config.s3PasswdParameter || ""}' S3_REGION='${config.s3Region || config.region}'`,
       "bash /opt/tws-provision/bootstrap.sh",
     );
     new CfnOutput(this, "InstanceId", { value: instance.instanceId });

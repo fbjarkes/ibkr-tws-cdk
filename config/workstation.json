@@ -4,7 +4,8 @@
   "instanceType": "m7i.xlarge",
   "dataGiB": 100,
   "bucket": "",
-  "prefix": "",
+  "prefix": "watchlists",
   "s3ReadWrite": false,
-  "amiId": ""
+  "amiId": "",
+  "s3Region": "eu-north-1"
 }

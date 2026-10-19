@@ -15,3 +15,7 @@ config/local.json
 *.pfx
 
 # .env includes the private client IP; cdk.out includes synthesized CIDR rules.
+
+# Never commit local s3fs credential files.
+passwd-s3fs*
+.passwd-s3fs*

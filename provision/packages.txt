@@ -12,3 +12,4 @@ python3-venv
 s3fs
 fuse3
 nvme-cli
+openssh-server

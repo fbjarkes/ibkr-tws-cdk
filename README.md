@@ -4,9 +4,9 @@ First iteration of a persistent Ubuntu desktop for Interactive Brokers TWS. Type
 
 ## Design
 
-- `TwsFoundation`: one public subnet in a fixed Availability Zone, no NAT gateway, encrypted retained 100 GiB gp3 data disk, daily snapshots at 02:00 UTC with seven retained snapshots. Foundation termination protection is enabled in the CDK app.
-- `TwsDesktop`: On-Demand m7i.xlarge (4 vCPU / 16 GiB), Ubuntu 24.04 x86-64, encrypted disposable 40 GiB root disk, IMDSv2, SSM access and a narrowly scoped instance role. No SSH key.
-- Public IPv4 enables direct RDP access and outbound connectivity. The security group permits TCP 3389 only from the single IPv4 host in `IP_ADDRESS` (`/32`). SSH and the TWS API have no inbound rules. Tailscale is deferred and is not installed.
+- `TwsFoundation`: one public subnet in a fixed Availability Zone, no NAT gateway, encrypted retained 50 GiB gp3 data disk, daily snapshots at 02:00 UTC with seven retained snapshots. Foundation termination protection is enabled in the CDK app.
+- `TwsDesktop`: On-Demand m7i.xlarge (4 vCPU / 16 GiB), Ubuntu 24.04 x86-64, encrypted disposable 20 GiB root disk, IMDSv2, SSM access and a narrowly scoped instance role. SSH public keys are supplied separately; no private key is deployed.
+- Public IPv4 enables direct RDP access and outbound connectivity. The security group permits TCP 3389 and TCP 22 only from the single IPv4 host in `IP_ADDRESS` (`/32`). SSH requires public-key authentication; the TWS API has no inbound rule. Tailscale is deferred and is not installed.
 - `/srv/tws/home` is bind-mounted at `/home/trader`. Put TWS and its settings there. Never attach this disk to two desktop instances simultaneously. The instance is tied to the data volume's AZ; this is not high availability.
 - Root packages are recreated on rebuild. Home files survive, but running sessions, unsaved work and the trader password do not. Set the password after each rebuild. Existing snapshots are crash-consistent; close apps before taking a manual snapshot for a known clean recovery point.
 
@@ -16,7 +16,7 @@ The diagram shows the current CDK configuration. TWS is installed manually, and 
 
 ```mermaid
 flowchart TB
-  client["Win11 / Debian / macOS<br/>RDP client · allowed public IPv4"]
+  client["Win11 / Debian / macOS<br/>RDP / SSH clients · allowed public IPv4"]
   dev["Developer workstation<br/>Git · CDK · AWS CLI"]
   ib["Interactive Brokers<br/>External service"]
 
@@ -33,13 +33,13 @@ flowchart TB
         subgraph vpc["Amazon VPC — single-AZ subnet layout"]
           igw["Internet Gateway<br/>Public subnet route: 0.0.0.0/0"]
           subgraph subnet["Public subnet — eu-north-1a · no NAT gateway"]
-            subgraph sg["Security group attached to EC2 ENI<br/>Inbound: TCP 3389 from IP_ADDRESS/32 · Outbound: all"]
-              ec2["Amazon EC2 — m7i.xlarge<br/>Ubuntu 24.04 · 4 vCPU · 16 GiB<br/>Public IPv4 · IMDSv2 required<br/>xrdp / XFCE<br/>TWS installed manually · LibreOffice · browser<br/>SSM Agent · s3fs"]
+            subgraph sg["Security group attached to EC2 ENI<br/>Inbound: TCP 3389 + 22 from IP_ADDRESS/32 · Outbound: all"]
+              ec2["Amazon EC2 — m7i.xlarge<br/>Ubuntu 24.04 · 4 vCPU · 16 GiB<br/>Public IPv4 · IMDSv2 required<br/>xrdp / XFCE · OpenSSH · Herdr<br/>TWS installed manually · LibreOffice · browser<br/>SSM Agent · s3fs"]
             end
           end
         end
-        root["Amazon EBS — encrypted gp3 · 40 GiB<br/>Root OS disk · eu-north-1a<br/>Deleted with desktop instance"]
-        data["Amazon EBS — encrypted gp3 · 100 GiB<br/>eu-north-1a · Home and TWS files<br/>Retained across desktop rebuilds"]
+        root["Amazon EBS — encrypted gp3 · 20 GiB<br/>Root OS disk · eu-north-1a<br/>Deleted with desktop instance"]
+        data["Amazon EBS — encrypted gp3 · 50 GiB<br/>eu-north-1a · Home and TWS files<br/>Retained across desktop rebuilds"]
     end
   end
 
@@ -48,7 +48,7 @@ flowchart TB
   dev -->|"AWS-authenticated recovery and commands"| ssm
   cf -.->|"Provision / manage"| ec2
   cf -.->|"Provision / retain"| data
-  client <-->|"RDP TLS · TCP 3389<br/>Source IP_ADDRESS/32 only"| igw
+  client <-->|"RDP TLS · 3389 / SSH · 22<br/>Source IP_ADDRESS/32 only"| igw
   igw <--> ec2
   ec2 <-->|"Outbound network path via Internet Gateway"| ib
   ec2 -->|"HTTPS via Internet Gateway<br/>Download provisioning asset"| assets
@@ -138,6 +138,44 @@ Run `.\scripts\workstation.ps1 status` to get the instance's current public IPv4
 
 TWS itself is **not silently downloaded or installed** in v0.1. Obtain the Linux installer from Interactive Brokers, run it as trader, and select a directory beneath `/home/trader` (for example `/home/trader/Jts`). Enable API socket clients, prefer localhost-only access, and keep credentials out of provisioning. For automation add a reviewed, version/checksum-pinned installer in a post-install hook, running the actual install as trader. IBKR login/MFA remains interactive. Sizing and responsiveness need validation with your TWS layout before relying on it for trading.
 
+## SSH and Herdr from macOS / Debian
+
+The stack allows TCP 22 from the same `IP_ADDRESS/32` as RDP. OpenSSH accepts public-key authentication for `trader` only; root login and SSH password/keyboard-interactive authentication are disabled. The RDP password is independent. SSM remains available for recovery.
+
+Set `SSH_PUBLIC_KEYS_FILE` in local `.env` to a public-key file. It can contain one public key per line for both your Mac and Debian machine. Paths beginning with `~/` expand to the deployment user's home, and relative paths resolve from the repository. Only public keys are copied into the generated bootstrap; identifying comments are removed. No private keys are generated, uploaded or read. If this setting is blank, SSH has no provisioned client key; add one through SSM or set this before rebuilding. An existing `trader` user's `~/.ssh/authorized_keys` is also honored.
+
+```dotenv
+SSH_PUBLIC_KEYS_FILE=~/.ssh/id_ed25519.pub
+```
+
+On each client, create a key if needed with `ssh-keygen -t ed25519`; transfer only the `.pub` contents to the deployment machine's public-key list. Keep passphrase-protected private keys on their respective clients. Changing the key list in this configuration changes user data and requires a desktop rebuild; editing `IP_ADDRESS` alone still changes only security-group rules. For an existing instance, use SSM to update `~trader/.ssh/authorized_keys` without rebuilding.
+
+Get the current destination from `.\scripts\workstation.ps1 status`. On your Mac or Debian client:
+
+```bash
+ssh -i ~/.ssh/id_ed25519 trader@EC2_PUBLIC_IP
+# Herdr is installed in the persistent home:
+~/.local/bin/herdr
+```
+
+Or add this to the client's `~/.ssh/config`:
+
+```sshconfig
+Host tws-workstation
+    HostName EC2_PUBLIC_IP
+    User trader
+    IdentityFile ~/.ssh/id_ed25519
+    IdentitiesOnly yes
+```
+
+Install Herdr locally using its official installation instructions, then connect with `herdr --remote tws-workstation`. Herdr uses SSH rather than another public port. The server binary is pinned in `provision/herdr-release.json` (currently v0.9.5) with the SHA-256 from the publisher's manifest, and installed at `/home/trader/.local/bin/herdr`. Bootstrap downloads/verifies it only when the installed checksum differs. Update that manifest deliberately to change the managed version. It does not install/configure agent CLIs or their credentials, and no Herdr session is automatically started.
+
+Herdr sessions can keep running while SSH is disconnected, but an EC2 stop/rebuild ends live processes. Save work and stop Herdr sessions before using stop/down; the helper refuses a detected Herdr process. Home-directory state persists. Update the SSH HostName after stop/start if the public IP changes. A rebuilt OS also has a new SSH host key: verify it via SSM (`sudo ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`) before updating known_hosts; do not disable host-key verification.
+
+## Storage sizing
+
+Defaults are 20 GiB root and 50 GiB persistent data, configurable with `rootGiB` and `dataGiB`. Monitor root space, particularly apt updates, logs and s3fs temporary storage. This changes defaults for a new deployment: **an existing EBS data volume cannot be shrunk in place**. If the 100 GiB volume has already been deployed, retain its size in local configuration until you explicitly migrate files to a new smaller volume. A smaller root disk needs a fresh desktop deployment as well. No disk migration or AWS deployment is performed by editing these files.
+
 ## Customize like a provisioning recipe
 
 - `provision/packages.txt`: Ubuntu apt packages, one per line.
@@ -203,3 +241,6 @@ EBS, snapshots and CDK assets continue to cost money with compute down; public I
 
 - [s3fs options and credential files](https://github.com/s3fs-fuse/s3fs-fuse/blob/master/doc/man/s3fs.1.in)
 - [Parameter Store SecureString encryption](https://docs.aws.amazon.com/systems-manager/latest/userguide/secure-string-parameter-kms-encryption.html)
+
+- [Herdr installation](https://herdr.dev/docs/install/)
+- [Herdr remote SSH access](https://herdr.dev/docs/persistence-remote/)

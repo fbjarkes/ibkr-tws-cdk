@@ -8,7 +8,7 @@ test("persistent disk, IP-restricted RDP ingress and least-privilege defaults", 
     region: "eu-north-1",
     availabilityZone: "eu-north-1a",
     instanceType: "m7i.xlarge",
-    dataGiB: 100,
+    dataGiB: 50,
     bucket: "example-tws",
     prefix: "reports",
     s3ReadWrite: false,
@@ -22,7 +22,7 @@ test("persistent disk, IP-restricted RDP ingress and least-privilege defaults", 
   base.hasResource("AWS::EC2::Volume", {
     DeletionPolicy: "Retain",
     UpdateReplacePolicy: "Retain",
-    Properties: Match.objectLike({ Encrypted: true, Size: 100 }),
+    Properties: Match.objectLike({ Encrypted: true, Size: 50 }),
   });
   base.resourceCountIs("AWS::EC2::NatGateway", 0);
   base.resourceCountIs("AWS::DLM::LifecyclePolicy", 1);
@@ -36,9 +36,21 @@ test("persistent disk, IP-restricted RDP ingress and least-privilege defaults", 
         IpProtocol: "tcp",
         ToPort: 3389,
       },
+      {
+        CidrIp: "203.0.113.10/32",
+        Description: "SSH from configured client IPv4",
+        FromPort: 22,
+        IpProtocol: "tcp",
+        ToPort: 22,
+      },
     ],
   });
   template.hasResourceProperties("AWS::EC2::Instance", {
+    BlockDeviceMappings: Match.arrayWith([
+      Match.objectLike({
+        Ebs: Match.objectLike({ VolumeSize: 20, Encrypted: true }),
+      }),
+    ]),
     Volumes: Match.arrayWith([Match.objectLike({ Device: "/dev/sdf" })]),
   });
   template.hasResourceProperties("AWS::EC2::LaunchTemplate", {

@@ -4,7 +4,7 @@ This diagram describes the current CDK source and default configuration, not a v
 
 ```mermaid
 flowchart TB
-  client["Win11 / Debian / macOS<br/>RDP client · allowed public IPv4"]
+  client["Win11 / Debian / macOS<br/>RDP / SSH clients · allowed public IPv4"]
   dev["Developer workstation<br/>Git · CDK · AWS CLI"]
   ib["Interactive Brokers<br/>External service"]
 
@@ -21,13 +21,13 @@ flowchart TB
         subgraph vpc["Amazon VPC — single-AZ subnet layout"]
           igw["Internet Gateway<br/>Public subnet route: 0.0.0.0/0"]
           subgraph subnet["Public subnet — eu-north-1a · no NAT gateway"]
-            subgraph sg["Security group attached to EC2 ENI<br/>Inbound: TCP 3389 from IP_ADDRESS/32 · Outbound: all"]
-              ec2["Amazon EC2 — m7i.xlarge<br/>Ubuntu 24.04 · 4 vCPU · 16 GiB<br/>Public IPv4 · IMDSv2 required<br/>xrdp / XFCE<br/>TWS installed manually · LibreOffice · browser<br/>SSM Agent · s3fs"]
+            subgraph sg["Security group attached to EC2 ENI<br/>Inbound: TCP 3389 + 22 from IP_ADDRESS/32 · Outbound: all"]
+              ec2["Amazon EC2 — m7i.xlarge<br/>Ubuntu 24.04 · 4 vCPU · 16 GiB<br/>Public IPv4 · IMDSv2 required<br/>xrdp / XFCE · OpenSSH · Herdr<br/>TWS installed manually · LibreOffice · browser<br/>SSM Agent · s3fs"]
             end
           end
         end
-        root["Amazon EBS — encrypted gp3 · 40 GiB<br/>Root OS disk · eu-north-1a<br/>Deleted with desktop instance"]
-        data["Amazon EBS — encrypted gp3 · 100 GiB<br/>eu-north-1a · Home and TWS files<br/>Retained across desktop rebuilds"]
+        root["Amazon EBS — encrypted gp3 · 20 GiB<br/>Root OS disk · eu-north-1a<br/>Deleted with desktop instance"]
+        data["Amazon EBS — encrypted gp3 · 50 GiB<br/>eu-north-1a · Home and TWS files<br/>Retained across desktop rebuilds"]
     end
   end
 
@@ -36,7 +36,7 @@ flowchart TB
   dev -->|"AWS-authenticated recovery and commands"| ssm
   cf -.->|"Provision / manage"| ec2
   cf -.->|"Provision / retain"| data
-  client <-->|"RDP TLS · TCP 3389<br/>Source IP_ADDRESS/32 only"| igw
+  client <-->|"RDP TLS · 3389 / SSH · 22<br/>Source IP_ADDRESS/32 only"| igw
   igw <--> ec2
   ec2 <-->|"Outbound network path via Internet Gateway"| ib
   ec2 -->|"HTTPS via Internet Gateway<br/>Download provisioning asset"| assets
@@ -62,7 +62,7 @@ flowchart TB
 
 ## Access and provisioning details
 
-- xrdp listens on IPv4 TCP 3389. The security group allows only the single public source IPv4 configured by `IP_ADDRESS` in local `.env`, normalized to `/32`. SSH and the TWS API have no inbound rules.
+- xrdp listens on IPv4 TCP 3389. The security group allows RDP (3389) and SSH (22) only from the single public source IPv4 configured by `IP_ADDRESS` in local `.env`, normalized to `/32`. SSH requires public-key authentication; the TWS API has no inbound rule.
 - RDP connects directly through the Internet Gateway with TLS. Tailscale is deferred and not installed. The EC2 public IPv4 is not an Elastic IP and can change after stop/start; the lifecycle status command shows the current destination.
 - Systems Manager works through outbound connections; no inbound management port is required. No VPC endpoints, VPN gateway, NAT gateway or load balancer is configured.
 - S3 and Systems Manager are regional services outside the VPC. EBS volumes are AZ resources attached to EC2, not resources inside its subnet. IAM is account-scoped.

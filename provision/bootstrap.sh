@@ -40,6 +40,19 @@ if [ ! -d /srv/tws/home ]; then
 fi
 printf '/srv/tws/home /home/trader none bind 0 0\n' >> /etc/fstab
 mount /home/trader
+# Public-key authentication only, independent of the password used for RDP.
+install -d -o root -g root -m 0755 /etc/ssh/authorized_keys /run/sshd
+if [ -n "$SSH_AUTHORIZED_KEYS_B64" ]; then
+  printf '%s' "$SSH_AUTHORIZED_KEYS_B64" | base64 --decode > /etc/ssh/authorized_keys/trader
+  printf '\n' >> /etc/ssh/authorized_keys/trader
+  chmod 0644 /etc/ssh/authorized_keys/trader
+  ssh-keygen -l -f /etc/ssh/authorized_keys/trader >/dev/null
+fi
+install -m 0644 files/tws-sshd.conf /etc/ssh/sshd_config.d/00-tws.conf
+install -d /etc/systemd/system/ssh.service.d
+printf '[Unit]\nRequiresMountsFor=/home/trader\n' > /etc/systemd/system/ssh.service.d/persistent-home.conf
+/usr/sbin/sshd -t
+bash files/install-herdr.sh
 # Standard RDP listener; the EC2 security group allows one configured client IPv4.
 sed -i '0,/^port=/{s|^port=.*|port=tcp://0.0.0.0:3389|;}' /etc/xrdp/xrdp.ini
 # Require TLS for the direct RDP connection.
@@ -88,6 +101,8 @@ install -m 0644 files/tws-custom-boot.service /etc/systemd/system/tws-custom-boo
 systemctl daemon-reload
 if [ -n "$S3_BUCKET" ]; then systemctl enable --now tws-s3fs.service; fi
 systemctl enable --now tws-custom-boot.service
+systemctl enable --now ssh.service
+systemctl restart ssh.service
 systemctl enable --now xrdp-sesman.service xrdp.service
 touch /var/lib/tws-bootstrap-complete
 echo 'Bootstrap complete. Set the trader password using SSM, then connect to the public IPv4 using RDP.'

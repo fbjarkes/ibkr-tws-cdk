@@ -50,7 +50,7 @@ test("an IP-only change modifies only security-group rules, not EC2 or user data
       region: "eu-north-1",
       availabilityZone: "eu-north-1a",
       instanceType: "m7i.xlarge",
-      dataGiB: 100,
+      dataGiB: 50,
       bucket: "",
       prefix: "",
       s3ReadWrite: false,

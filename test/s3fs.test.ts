@@ -34,7 +34,7 @@ test("password-file mode scopes parameter and KMS access without resolving the s
     region: "eu-north-1",
     availabilityZone: "eu-north-1a",
     instanceType: "m7i.xlarge",
-    dataGiB: 100,
+    dataGiB: 50,
     bucket: "example-tws",
     prefix: "watchlists",
     s3Region: "eu-north-1",

@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { isIPv4 } from "node:net";
 import { resolve } from "node:path";
+import { homedir } from "node:os";
 import { parseEnv } from "node:util";
 
 /** Exactly one IPv4 host; never widen a typo into a subnet or world-open rule. */
@@ -54,4 +55,49 @@ export function s3ParameterSettings(environment: NodeJS.ProcessEnv) {
     );
   }
   return { s3PasswdParameter, s3PasswdKmsKeyArn };
+}
+
+/** Only public OpenSSH keys, without identifying comments or authorized_keys options. */
+export function parseSshPublicKeys(text: string): string[] {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("#"))
+    .map((line) => {
+      const [algorithm, encoded] = line.split(/\s+/);
+      if (
+        !/^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(?:256|384|521))$/.test(
+          algorithm,
+        ) ||
+        !encoded ||
+        !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)
+      )
+        throw new Error(
+          "SSH_PUBLIC_KEYS_FILE must contain only OpenSSH public keys, never private keys",
+        );
+      const blob = Buffer.from(encoded, "base64");
+      if (blob.toString("base64") !== encoded || blob.length < 8)
+        throw new Error("Invalid SSH public key encoding");
+      const length = blob.readUInt32BE(0);
+      if (
+        length > blob.length - 4 ||
+        blob.subarray(4, 4 + length).toString() !== algorithm ||
+        blob.length <= 4 + length
+      )
+        throw new Error("Invalid SSH public key payload");
+      return algorithm + " " + encoded;
+    });
+}
+
+export function loadSshPublicKeys(environment: NodeJS.ProcessEnv): string[] {
+  const file = environment.SSH_PUBLIC_KEYS_FILE?.trim();
+  if (!file) return [];
+  const expanded =
+    file.startsWith("~/") || file.startsWith("~\\")
+      ? resolve(homedir(), file.slice(2))
+      : resolve(file);
+  const keys = parseSshPublicKeys(readFileSync(expanded, "utf8"));
+  if (!keys.length)
+    throw new Error("SSH_PUBLIC_KEYS_FILE contains no public keys");
+  return [...new Set(keys)];
 }

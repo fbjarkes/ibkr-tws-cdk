@@ -1,5 +1,6 @@
 import {
   loadRdpCidr,
+  loadSshPublicKeys,
   loadLocalEnvironment,
   s3ParameterSettings,
 } from "../lib/access";
@@ -19,6 +20,7 @@ const config: Config = {
   ...local,
   rdpCidr: loadRdpCidr(),
   ...s3ParameterSettings(loadLocalEnvironment()),
+  sshPublicKeys: loadSshPublicKeys(loadLocalEnvironment()),
 };
 if (!config.availabilityZone.startsWith(config.region))
   throw new Error("Availability zone must match region");

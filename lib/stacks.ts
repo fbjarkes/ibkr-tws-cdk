@@ -18,6 +18,8 @@ export interface Config {
   availabilityZone: string;
   instanceType: string;
   dataGiB: number;
+  rootGiB?: number;
+  sshPublicKeys?: string[];
   bucket: string;
   prefix: string;
   s3ReadWrite: boolean;
@@ -93,13 +95,18 @@ export class Desktop extends Stack {
     const sg = new ec2.SecurityGroup(this, "DesktopSecurityGroup", {
       vpc: foundation.vpc,
       description:
-        "RDP from one configured IPv4 host only; no SSH or TWS API ingress",
+        "RDP and key-only SSH from one configured IPv4 host; no TWS API ingress",
       allowAllOutbound: true,
     });
     sg.addIngressRule(
       ec2.Peer.ipv4(ipv4HostCidr(config.rdpCidr)),
       ec2.Port.tcp(3389),
       "RDP from configured client IPv4",
+    );
+    sg.addIngressRule(
+      ec2.Peer.ipv4(ipv4HostCidr(config.rdpCidr)),
+      ec2.Port.tcp(22),
+      "SSH from configured client IPv4",
     );
     const role = new iam.Role(this, "InstanceRole", {
       assumedBy: new iam.ServicePrincipal("ec2.amazonaws.com"),
@@ -200,6 +207,7 @@ export class Desktop extends Stack {
       "curl --fail --location --retry 3 https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o /tmp/awscli.zip",
       "unzip -q /tmp/awscli.zip -d /tmp/awscli",
       "/tmp/awscli/aws/install",
+      "rm -rf /tmp/awscli /tmp/awscli.zip",
     );
     const instance = new ec2.Instance(this, "Instance", {
       vpc: foundation.vpc,
@@ -220,7 +228,7 @@ export class Desktop extends Stack {
       blockDevices: [
         {
           deviceName: "/dev/sda1",
-          volume: ec2.BlockDeviceVolume.ebs(40, {
+          volume: ec2.BlockDeviceVolume.ebs(config.rootGiB ?? 20, {
             encrypted: true,
             volumeType: ec2.EbsDeviceVolumeType.GP3,
             deleteOnTermination: true,
@@ -245,6 +253,7 @@ export class Desktop extends Stack {
       `export DATA_VOLUME_ID='${foundation.volume.volumeId}'`,
       `export S3_BUCKET='${config.bucket}' S3_PREFIX='${config.prefix}' S3_WRITABLE='${config.s3ReadWrite}' AWS_DEFAULT_REGION='${this.region}'`,
       `export PARAM_STORE_KEY_S3_PASSWD='${config.s3PasswdParameter || ""}' S3_REGION='${config.s3Region || config.region}'`,
+      `export SSH_AUTHORIZED_KEYS_B64='${Buffer.from((config.sshPublicKeys || []).join("\n")).toString("base64")}'`,
       "bash /opt/tws-provision/bootstrap.sh",
     );
     new CfnOutput(this, "InstanceId", { value: instance.instanceId });

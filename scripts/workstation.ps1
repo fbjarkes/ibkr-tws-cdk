@@ -38,7 +38,7 @@ switch ($Action) {
       if (-not $ApplicationsClosed) { throw 'Save work and close TWS/browser/LibreOffice, then pass -ApplicationsClosed. No forced application shutdown is performed.' }
       $check = @'
 set -eu
-if pgrep -u trader -f '(^|/)(java|soffice.bin|firefox)( |$)' >/dev/null; then echo 'Close desktop applications first'; exit 1; fi
+if pgrep -u trader -f '(^|/)(java|soffice.bin|firefox|herdr)( |$)' >/dev/null; then echo 'Close desktop applications and stop Herdr sessions first'; exit 1; fi
 if mountpoint -q /mnt/watchlists; then
   sync -f /mnt/watchlists
   umount /mnt/watchlists

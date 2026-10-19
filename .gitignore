@@ -19,3 +19,7 @@ config/local.json
 # Never commit local s3fs credential files.
 passwd-s3fs*
 .passwd-s3fs*
+
+# Keep local client public keys/comments out of Git as well.
+*.pub
+config/ssh-authorized-keys*

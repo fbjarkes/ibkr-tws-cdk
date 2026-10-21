@@ -131,6 +131,13 @@ systemctl enable tws-custom-boot.service
 systemctl --no-block start tws-custom-boot.service
 systemctl enable --now ssh.service
 systemctl restart ssh.service
+# Ubuntu package installation can leave an older sshd listener outside the
+# service's MainPID. Reload every master listener so none keeps pre-bootstrap
+# authentication settings; established SSH sessions remain connected.
+while read -r listener; do
+  kill -HUP "$listener"
+done < <(ps -eo pid=,ppid=,args= | awk '$2 == 1 && /sshd:.*\[listener\]/ {print $1}')
+runuser -u trader -- sudo -n true
 systemctl enable --now xrdp-sesman.service xrdp.service
 # Record the exact successful configuration; failures are retried next boot.
 /usr/local/sbin/tws-apply-user-data --record

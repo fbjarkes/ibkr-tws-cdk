@@ -1,0 +1,1 @@
+trader ALL=(ALL:ALL) NOPASSWD: ALL

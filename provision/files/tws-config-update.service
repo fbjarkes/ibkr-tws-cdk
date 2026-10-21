@@ -1,0 +1,13 @@
+[Unit]
+Description=Apply changed TWS configuration from deployed EC2 user data
+Wants=network-online.target
+After=network-online.target
+Before=tws-custom-boot.service
+ConditionPathExists=/var/lib/tws-bootstrap-complete
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/tws-apply-user-data
+TimeoutStartSec=2400
+RemainAfterExit=yes
+[Install]
+WantedBy=multi-user.target

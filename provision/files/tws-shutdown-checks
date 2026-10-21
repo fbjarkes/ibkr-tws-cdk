@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -eu
+if pgrep -u trader -f '(^|/)(java|soffice.bin|firefox|herdr)( |$)' >/dev/null; then echo 'Close desktop applications and stop Herdr sessions first'; exit 1; fi
+if mountpoint -q /mnt/watchlists; then
+  sync -f /mnt/watchlists
+  umount /mnt/watchlists
+fi
+if systemctl is-active --quiet tws-s3fs.service; then
+  systemctl stop tws-s3fs.service
+fi
+sync

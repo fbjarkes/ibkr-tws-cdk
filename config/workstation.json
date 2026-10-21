@@ -6,7 +6,7 @@
   "bucket": "",
   "prefix": "watchlists",
   "s3ReadWrite": false,
-  "amiId": "",
+  "amiId": "ami-0fd9576cca965bd19",
   "s3Region": "eu-north-1",
   "rootGiB": 20
 }

@@ -236,7 +236,7 @@ export class Desktop extends Stack {
       associatePublicIpAddress: true,
       requireImdsv2: true,
       userData,
-      userDataCausesReplacement: true,
+      userDataCausesReplacement: false,
       blockDevices: [
         {
           deviceName: "/dev/sda1",
@@ -249,6 +249,9 @@ export class Desktop extends Stack {
       ],
     });
     const cfn = instance.node.defaultChild as ec2.CfnInstance;
+    // Preserve the already-deployed identity when retiring CDK's user-data hash suffix.
+    // Keep this stable: changing it would replace the existing desktop.
+    cfn.overrideLogicalId("InstanceC1063A8763613f65227fc204");
     cfn.cfnOptions.creationPolicy = {
       resourceSignal: { count: 1, timeout: "PT40M" },
     };
@@ -259,14 +262,24 @@ export class Desktop extends Stack {
     const signal = `aws cloudformation signal-resource --region ${this.region} --stack-name ${this.stackName} --logical-resource-id ${cfn.logicalId} --unique-id desktop --status`;
     userData.addCommands(
       `trap 'rc=$?; if [ "$rc" -eq 0 ]; then ${signal} SUCCESS; else ${signal} FAILURE; fi' EXIT`,
-      `aws s3 cp 's3://${asset.s3BucketName}/${asset.s3ObjectKey}' /tmp/provision.zip --region ${this.region}`,
-      "mkdir -p /opt/tws-provision",
-      "unzip -qo /tmp/provision.zip -d /opt/tws-provision",
+      "# TWS-APPLY-BEGIN",
+      "umask 022",
+      // Restore standard traversal permissions after the initial updater migration.
+      "chmod 0755 / /etc",
+      "rm -f /tmp/provision.zip",
+      `for attempt in $(seq 1 12); do aws s3 cp 's3://${asset.s3BucketName}/${asset.s3ObjectKey}' /tmp/provision.zip --region ${this.region} && break; sleep 10; done`,
+      "test -s /tmp/provision.zip",
+      "rm -rf /opt/tws-provision.next",
+      "mkdir -p /opt/tws-provision.next",
+      "unzip -qo /tmp/provision.zip -d /opt/tws-provision.next",
+      "rm -rf /opt/tws-provision",
+      "mv /opt/tws-provision.next /opt/tws-provision",
       `export DATA_VOLUME_ID='${foundation.volume.volumeId}'`,
       `export S3_BUCKET='${config.bucket}' S3_PREFIX='${config.prefix}' S3_WRITABLE='${config.s3ReadWrite}' AWS_DEFAULT_REGION='${this.region}'`,
       `export PARAM_STORE_KEY_S3_PASSWD='${config.s3PasswdParameter || ""}' S3_REGION='${config.s3Region || config.region}'`,
       `export SSH_AUTHORIZED_KEYS_B64='${Buffer.from((config.sshPublicKeys || []).join("\n")).toString("base64")}'`,
       "bash /opt/tws-provision/bootstrap.sh",
+      "# TWS-APPLY-END",
     );
     new CfnOutput(this, "InstanceId", { value: instance.instanceId });
     new CfnOutput(this, "SessionCommand", {

@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 exec > >(tee -a /var/log/tws-bootstrap.log) 2>&1
+umask 022
 export DEBIAN_FRONTEND=noninteractive
 cd /opt/tws-provision
 run_hooks() { local stage="$1"; while IFS= read -r script; do bash "$script"; done < <(find "hooks/$stage" -maxdepth 1 -type f -name '*.sh' | sort); }
+# A root-owned boot updater applies the latest deployed user-data configuration.
+install -o root -g root -m 0755 files/tws-apply-user-data /usr/local/sbin/tws-apply-user-data
+install -o root -g root -m 0644 files/tws-config-update.service /etc/systemd/system/tws-config-update.service
+systemctl daemon-reload
+systemctl enable tws-config-update.service
 run_hooks pre-install
 mapfile -t packages < <(sed 's/#.*//; /^[[:space:]]*$/d' packages.txt)
 apt-get -o DPkg::Lock::Timeout=600 update
@@ -36,6 +42,13 @@ mountpoint -q /srv/tws || mount /srv/tws
 resize2fs "$disk"
 id trader &>/dev/null || useradd --uid 1100 --create-home --shell /bin/bash trader
 [ "$(id -u trader)" = 1100 ] || { echo 'Unexpected trader UID'; exit 1; }
+# Administrator access for the SSH-key-authenticated workstation owner.
+usermod -aG sudo trader
+visudo -cf files/tws-trader-sudoers
+install -o root -g root -m 0440 files/tws-trader-sudoers /etc/sudoers.d/90-trader-admin
+visudo -c
+install -o root -g root -m 0755 files/tws-shutdown-checks /usr/local/sbin/tws-shutdown-checks
+
 if [ ! -d /srv/tws/home ]; then
   mkdir /srv/tws/home
   cp -a /home/trader/. /srv/tws/home/
@@ -74,6 +87,15 @@ fi
 mkdir -p /home/trader/.config/autostart
 # Remove the obsolete desktop autostart entry when reusing a persistent home.
 rm -f /home/trader/.config/autostart/tws-s3.desktop
+# Reconcile an existing mount before changing its configuration, without forced unmounts.
+if mountpoint -q /mnt/watchlists; then
+  sync -f /mnt/watchlists
+  umount /mnt/watchlists
+fi
+if systemctl is-active --quiet tws-s3fs.service; then systemctl stop tws-s3fs.service; fi
+if [ -z "$S3_BUCKET" ] && [ -f /etc/systemd/system/tws-s3fs.service ]; then
+  systemctl disable tws-s3fs.service
+fi
 if [ -n "$S3_BUCKET" ]; then
   install -d -o trader -g trader -m 0755 /mnt/watchlists
   install -m 0755 files/tws-fetch-s3-credentials /usr/local/sbin/tws-fetch-s3-credentials
@@ -93,7 +115,8 @@ EOF
   umask 022
 fi
 # Managed root overlay: provision/files/rootfs/etc/... becomes /etc/...
-cp -a files/rootfs/. /
+# Preserve existing system-directory permissions when merging the overlay.
+tar -C files/rootfs -cf - . | tar -C / --no-same-owner --no-same-permissions --no-overwrite-dir -xf -
 chown -R trader:trader /home/trader/.config
 run_hooks post-install
 if [ ! -e /srv/tws/.first-use-complete ]; then
@@ -103,9 +126,13 @@ fi
 install -m 0644 files/tws-custom-boot.service /etc/systemd/system/tws-custom-boot.service
 systemctl daemon-reload
 if [ -n "$S3_BUCKET" ]; then systemctl enable --now tws-s3fs.service; fi
-systemctl enable --now tws-custom-boot.service
+systemctl enable tws-custom-boot.service
+# Avoid waiting for a service ordered after the updater that is running us.
+systemctl --no-block start tws-custom-boot.service
 systemctl enable --now ssh.service
 systemctl restart ssh.service
 systemctl enable --now xrdp-sesman.service xrdp.service
+# Record the exact successful configuration; failures are retried next boot.
+/usr/local/sbin/tws-apply-user-data --record
 touch /var/lib/tws-bootstrap-complete
-echo 'Bootstrap complete. Set the trader password using SSM, then connect to the public IPv4 using RDP.'
+echo 'Bootstrap complete. SSH as trader for passwordless sudo; run sudo passwd trader if you want to log in through RDP.'

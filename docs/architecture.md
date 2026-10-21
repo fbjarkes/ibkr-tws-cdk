@@ -64,7 +64,7 @@ flowchart TB
 
 - xrdp listens on IPv4 TCP 3389. The security group allows RDP (3389) and SSH (22) only from the single public source IPv4 configured by `IP_ADDRESS` in local `.env`, normalized to `/32`. SSH requires public-key authentication; the TWS API has no inbound rule.
 - RDP connects directly through the Internet Gateway with TLS. Tailscale is deferred and not installed. The EC2 public IPv4 is not an Elastic IP and can change after stop/start; the lifecycle status command shows the current destination.
-- Systems Manager works through outbound connections; no inbound management port is required. No VPC endpoints, VPN gateway, NAT gateway or load balancer is configured.
+- Routine administration and lifecycle shutdown checks use SSH as `trader`, with passwordless sudo (`sudo -i` for root); the authorized SSH key is sufficient for administration. Systems Manager remains an optional fallback and supports Parameter Store; it works through outbound connections; no inbound management port is required. No VPC endpoints, VPN gateway, NAT gateway or load balancer is configured.
 - S3 and Systems Manager are regional services outside the VPC. EBS volumes are AZ resources attached to EC2, not resources inside its subnet. IAM is account-scoped.
 - Cloud-init downloads a CDK S3 asset, installs packages, copies managed files and executes custom hooks. Systemd runs the every-boot hooks. Asset access uses the instance role, not stored AWS access keys.
 - Localhost-only TWS API access is the recommended application setting; it must be enabled/configured in TWS. No separate IB Gateway process is provisioned.

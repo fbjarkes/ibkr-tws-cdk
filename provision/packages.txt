@@ -14,3 +14,4 @@ fuse3
 nvme-cli
 openssh-server
 sudo
+neovim

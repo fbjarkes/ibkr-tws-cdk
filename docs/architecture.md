@@ -12,7 +12,7 @@ flowchart TB
     iam["AWS IAM<br/>EC2 instance role + instance profile<br/>Separate DLM service role"]
     subgraph region["AWS Region: eu-north-1 — Stockholm"]
       cf["AWS CloudFormation<br/>TwsFoundation + TwsDesktop"]
-      assets["Amazon S3<br/>CDK bootstrap asset bucket<br/>Provisioning scripts and files"]
+      assets["Amazon S3<br/>IbkrTwsToolkit asset bucket<br/>Provisioning scripts and files"]
       s3["Amazon S3 — optional existing bucket<br/>Selected bucket / prefix<br/>Read-only by default"]
       ssm["AWS Systems Manager<br/>Session Manager / Run Command"]
       params["SSM Parameter Store — optional<br/>SecureString s3fs credentials · KMS encryption"]
@@ -53,12 +53,12 @@ flowchart TB
 
 ## Ownership and lifecycle
 
-| Layer                   | Managed resources                                                                      | Behavior                                                                                                |
-| ----------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `TwsFoundation`         | VPC, subnet, routing, Internet Gateway, persistent EBS volume, DLM policy and DLM role | Kept during desktop teardown; stack termination protection enabled; data volume has retention policies. |
-| `TwsDesktop`            | EC2, root EBS disk, security group, instance role/profile, data-volume attachment      | Cleanly stop, destroy and recreate; existing data disk is reattached in the same AZ.                    |
-| CDK bootstrap           | Deployment roles and S3 assets bucket                                                  | Created separately by `cdk bootstrap`, retained independently of desktop stack.                         |
-| Existing S3 data bucket | Optional user-selected bucket/prefix                                                   | Not created or deleted by this project. Bucket region may differ from the illustrated region.           |
+| Layer                   | Managed resources                                                                      | Behavior                                                                                                      |
+| ----------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `TwsFoundation`         | VPC, subnet, routing, Internet Gateway, persistent EBS volume, DLM policy and DLM role | Kept during desktop teardown; stack termination protection enabled; data volume has retention policies.       |
+| `TwsDesktop`            | EC2, root EBS disk, security group, instance role/profile, data-volume attachment      | Cleanly stop, destroy and recreate; existing data disk is reattached in the same AZ.                          |
+| CDK bootstrap           | Deployment roles and S3 assets bucket                                                  | Created separately as `IbkrTwsToolkit` with qualifier `ibkrtws`; retained independently of the desktop stack. |
+| Existing S3 data bucket | Optional user-selected bucket/prefix                                                   | Not created or deleted by this project. Bucket region may differ from the illustrated region.                 |
 
 ## Access and provisioning details
 

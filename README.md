@@ -24,7 +24,7 @@ flowchart TB
     iam["AWS IAM<br/>EC2 instance role + instance profile<br/>Separate DLM service role"]
     subgraph region["AWS Region: eu-north-1 — Stockholm"]
       cf["AWS CloudFormation<br/>TwsFoundation + TwsDesktop"]
-      assets["Amazon S3<br/>CDK bootstrap asset bucket<br/>Provisioning scripts and files"]
+      assets["Amazon S3<br/>IbkrTwsToolkit asset bucket<br/>Provisioning scripts and files"]
       s3["Amazon S3 — optional existing bucket<br/>Selected bucket / prefix<br/>Read-only by default"]
       ssm["AWS Systems Manager<br/>Session Manager / Run Command"]
       params["SSM Parameter Store — optional<br/>SecureString s3fs credentials · KMS encryption"]
@@ -113,11 +113,13 @@ Use the normal CDK app, not `--app cdk.out` or another previously synthesized as
 
 ```powershell
 aws sts get-caller-identity --profile poweruser
-# Inspect the existing CDKToolkit stack first. Bootstrap only if needed:
-npx cdk bootstrap aws://YOUR_ACCOUNT_ID/eu-north-1 --profile poweruser
+# Project-specific toolkit; inspect IbkrTwsToolkit first. Bootstrap only if needed:
+npx cdk bootstrap aws://YOUR_ACCOUNT_ID/eu-north-1 --toolkit-stack-name IbkrTwsToolkit --qualifier ibkrtws --profile poweruser
 npx cdk diff --all --profile poweruser
 npx cdk deploy --all --profile poweruser
 ```
+
+The bootstrap stack is named `IbkrTwsToolkit`, with qualifier `ibkrtws` configured in `cdk.json`. The qualifier isolates its asset bucket, roles and SSM bootstrap-version parameter from the default `CDKToolkit` resources. This project uses `IbkrTwsToolkit`; the previous default `CDKToolkit` stack was removed during the migration. CloudFormation retention policies may leave old bootstrap assets behind for separate cleanup. Changing the qualifier for an already deployed application is a deployment migration: review `cdk diff` before applying any application updates.
 
 Configure matching account/region context when bootstrapping another region. The deployment waits up to 40 minutes for provisioning to succeed. Provisioning errors after AWS CLI installation signal failure; earlier errors time out. Bootstrap logs: `/var/log/cloud-init-output.log` and `/var/log/tws-bootstrap.log`. A failed desktop deployment leaves the foundation/data disk intact.
 

@@ -13,3 +13,4 @@ s3fs
 fuse3
 nvme-cli
 openssh-server
+sudo

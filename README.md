@@ -67,7 +67,7 @@ See [the detailed architecture documentation](docs/architecture.md) for stack ow
 
 ## Prerequisites
 
-Node.js 22 LTS (current maintained patch) or newer supported LTS, npm, AWS CLI v2, PowerShell 7, and the Session Manager plugin. AWS profile `poweruser` must be authenticated. Creating/passing IAM roles, CloudFormation, EC2, DLM and CDK asset permissions are needed; the profile name does not establish permissions. If these are missing, use an administrator-approved deployment role.
+Node.js 22 LTS (current maintained patch) or newer supported LTS, npm, AWS CLI v2, PowerShell 7, and an OpenSSH client. The Session Manager plugin is optional for fallback access. AWS profile `poweruser` must be authenticated. Creating/passing IAM roles, CloudFormation, EC2, DLM and CDK asset permissions are needed; the profile name does not establish permissions. If these are missing, use an administrator-approved deployment role.
 
 ## Configure and validate
 
@@ -83,7 +83,7 @@ npm run synth
 
 Defaults: Stockholm (`eu-north-1` / `eu-north-1a`), no S3 mount. Set `bucket` to your chosen bucket (for example `my-tws-files`), optional `prefix`, and explicitly opt into `s3ReadWrite`. A configured prefix must not contain shell metacharacters or spaces. Select the bucket's region when practical; cross-region S3 traffic may cost extra. SSE-KMS buckets may additionally require narrowly scoped KMS permissions and key policy access.
 
-The AMI is resolved from Canonical's public SSM parameter at deployment time. Set `amiId` to a reviewed Ubuntu 24.04 amd64 image for repeatable rebuilds. Apt packages follow Ubuntu repositories unless pinned with `name=version`; this iteration is not a bit-for-bit reproducible image build.
+The default AMI is pinned to the currently deployed Ubuntu image to avoid surprise replacements. Setting `amiId` blank opts into resolving Canonical's public SSM parameter at deployment time. Set `amiId` to a reviewed Ubuntu 24.04 amd64 image for repeatable rebuilds. Apt packages follow Ubuntu repositories unless pinned with `name=version`; this iteration is not a bit-for-bit reproducible image build.
 
 ## Client IP configuration
 
@@ -102,7 +102,7 @@ After changing only `IP_ADDRESS`:
 
 ```powershell
 npx cdk diff TwsDesktop --profile poweruser
-npx cdk deploy TwsDesktop --profile poweruser
+npx cdk deploy TwsDesktop --profile poweruser --require-approval never
 ```
 
 This updates the security-group ingress rule in place, removing the old address and adding the new one. The IP is deliberately excluded from user data and provisioning assets, so an IP-only edit does not replace/reboot EC2 or reinstall applications. A regression test verifies this. AWS CLI/CDK access does not depend on the RDP allowlist, so you can make this update from your new network. Reconnect RDP after deployment.
@@ -116,8 +116,10 @@ aws sts get-caller-identity --profile poweruser
 # Project-specific toolkit; inspect IbkrTwsToolkit first. Bootstrap only if needed:
 npx cdk bootstrap aws://YOUR_ACCOUNT_ID/eu-north-1 --toolkit-stack-name IbkrTwsToolkit --qualifier ibkrtws --profile poweruser
 npx cdk diff --all --profile poweruser
-npx cdk deploy --all --profile poweruser
+npx cdk deploy --all --profile poweruser --require-approval never
 ```
+
+`--require-approval never` skips CDK security-change approval prompts for that deployment. Omit it to keep the default approval prompts; review changes with `cdk diff` before deploying.
 
 The bootstrap stack is named `IbkrTwsToolkit`, with qualifier `ibkrtws` configured in `cdk.json`. The qualifier isolates its asset bucket, roles and SSM bootstrap-version parameter from the default `CDKToolkit` resources. This project uses `IbkrTwsToolkit`; the previous default `CDKToolkit` stack was removed during the migration. CloudFormation retention policies may leave old bootstrap assets behind for separate cleanup. Changing the qualifier for an already deployed application is a deployment migration: review `cdk diff` before applying any application updates.
 
@@ -129,7 +131,7 @@ Configure matching account/region context when bootstrapping another region. The
 .\scripts\workstation.ps1 session
 ```
 
-In the SSM shell:
+The `session` helper opens normal SSH as `trader` (or use `ssh trader@EC2_PUBLIC_IP` directly). In that SSH shell:
 
 ```bash
 sudo passwd trader
@@ -142,15 +144,15 @@ TWS itself is **not silently downloaded or installed** in v0.1. Obtain the Linux
 
 ## SSH and Herdr from macOS / Debian
 
-The stack allows TCP 22 from the same `IP_ADDRESS/32` as RDP. OpenSSH accepts public-key authentication for `trader` only; root login and SSH password/keyboard-interactive authentication are disabled. The RDP password is independent. SSM remains available for recovery.
+The stack allows TCP 22 from the same `IP_ADDRESS/32` as RDP. OpenSSH accepts public-key authentication for `trader` only; root login and SSH password/keyboard-interactive authentication are disabled. The RDP password is independent. `trader` has passwordless full sudo access. Use `sudo -i` or `sudo su -` for a root shell; bare `su -` requires a root password, which this project does not set. Direct root SSH remains disabled. Your authorized SSH key is sufficient for sudo; no initial account password is needed. SSM is an optional recovery mechanism, not required for routine administration.
 
-Set `SSH_PUBLIC_KEYS_FILE` in local `.env` to a public-key file. It can contain one public key per line for both your Mac and Debian machine. Paths beginning with `~/` expand to the deployment user's home, and relative paths resolve from the repository. Only public keys are copied into the generated bootstrap; identifying comments are removed. No private keys are generated, uploaded or read. If this setting is blank, SSH has no provisioned client key; add one through SSM or set this before rebuilding. An existing `trader` user's `~/.ssh/authorized_keys` is also honored.
+Set `SSH_PUBLIC_KEYS_FILE` in local `.env` to a public-key file. It can contain one public key per line for both your Mac and Debian machine. Paths beginning with `~/` expand to the deployment user's home, and relative paths resolve from the repository. Only public keys are copied into the generated bootstrap; identifying comments are removed. No private keys are generated, uploaded or read. If this setting is blank, SSH has no provisioned client key; set this before deployment (or use an existing administrator to add a key). An existing `trader` user's `~/.ssh/authorized_keys` is also honored.
 
 ```dotenv
 SSH_PUBLIC_KEYS_FILE=~/.ssh/id_ed25519.pub
 ```
 
-On each client, create a key if needed with `ssh-keygen -t ed25519`; transfer only the `.pub` contents to the deployment machine's public-key list. Keep passphrase-protected private keys on their respective clients. Changing the key list in this configuration changes user data and requires a desktop rebuild; editing `IP_ADDRESS` alone still changes only security-group rules. For an existing instance, use SSM to update `~trader/.ssh/authorized_keys` without rebuilding.
+On each client, create a key if needed with `ssh-keygen -t ed25519`; transfer only the `.pub` contents to the deployment machine's public-key list. Keep passphrase-protected private keys on their respective clients. Changing the key list changes user data and is applied on the next boot after deployment; editing `IP_ADDRESS` alone still changes only security-group rules. For an existing instance, update `~trader/.ssh/authorized_keys` over your current SSH connection without rebuilding.
 
 Get the current destination from `.\scripts\workstation.ps1 status`. On your Mac or Debian client:
 
@@ -172,11 +174,25 @@ Host tws-workstation
 
 Install Herdr locally using its official installation instructions, then connect with `herdr --remote tws-workstation`. Herdr uses SSH rather than another public port. The server binary is pinned in `provision/herdr-release.json` (currently v0.9.5) with the SHA-256 from the publisher's manifest, and installed at `/home/trader/.local/bin/herdr`. Bootstrap downloads/verifies it only when the installed checksum differs. Update that manifest deliberately to change the managed version. It does not install/configure agent CLIs or their credentials, and no Herdr session is automatically started.
 
-Herdr sessions can keep running while SSH is disconnected, but an EC2 stop/rebuild ends live processes. Save work and stop Herdr sessions before using stop/down; the helper refuses a detected Herdr process. Home-directory state persists. Update the SSH HostName after stop/start if the public IP changes. A rebuilt OS also has a new SSH host key: verify it via SSM (`sudo ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`) before updating known_hosts; do not disable host-key verification.
+Herdr sessions can keep running while SSH is disconnected, but an EC2 stop/rebuild ends live processes. Save work and stop Herdr sessions before using stop/down; the helper refuses a detected Herdr process. Home-directory state persists. Update the SSH HostName after stop/start if the public IP changes. A rebuilt OS also has a new SSH host key: verify its fingerprint through a trusted administrative channel or EC2 console (`sudo ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`) before updating known_hosts; do not disable host-key verification.
+
+## Administrator access over SSH
+
+```bash
+ssh -i ~/.ssh/id_ed25519 trader@EC2_PUBLIC_IP
+sudo passwd trader            # Set/change the RDP password
+sudo systemctl restart xrdp
+sudo -i                       # Root login shell; exit to return to trader
+# Alternative: sudo su -
+```
+
+SSH authenticates with your authorized key, and `trader` can run sudo without a password. Use `sudo -i` or `sudo su -` for a root shell. No trader/root password is needed for sudo; set a trader password only if you want RDP login. Any trusted SSH client works; direct SSH commands do not need AWS CLI credentials. The network must still match `IP_ADDRESS`. The `session`, `stop` and `down` lifecycle helpers now use normal SSH. They use your SSH agent/default identities, or accept `-IdentityFile /path/to/private-key`; shutdown checks use `sudo -n` and do not prompt for an account password. The helper still uses AWS CLI to look up the current instance/public IP and to start/stop/delete AWS resources.
+
+This grant is installed during provisioning. An already-running instance without sudo needs a rebuild or a one-time update from an existing root/administrator shell; a new SSH connection alone cannot grant itself sudo. No running instance is changed by editing this project.
 
 ## Storage sizing
 
-Defaults are 20 GiB root and 50 GiB persistent data, configurable with `rootGiB` and `dataGiB`. Monitor root space, particularly apt updates, logs and s3fs temporary storage. This changes defaults for a new deployment: **an existing EBS data volume cannot be shrunk in place**. Growing `dataGiB` resizes the volume on a `TwsFoundation` deploy; the ext4 filesystem is grown on the next desktop rebuild, or immediately with `sudo resize2fs` on the data disk. If the 100 GiB volume has already been deployed, retain its size in local configuration until you explicitly migrate files to a new smaller volume. A smaller root disk needs a fresh desktop deployment as well. No disk migration or AWS deployment is performed by editing these files.
+Defaults are 20 GiB root and 50 GiB persistent data, configurable with `rootGiB` and `dataGiB`. Monitor root space, particularly apt updates, logs and s3fs temporary storage. This changes defaults for a new deployment: **an existing EBS data volume cannot be shrunk in place**. Growing `dataGiB` resizes the volume on a `TwsFoundation` deploy; the ext4 filesystem is grown on the next configuration apply, or immediately with `sudo resize2fs` on the data disk. If the 100 GiB volume has already been deployed, retain its size in local configuration until you explicitly migrate files to a new smaller volume. A smaller root disk needs a fresh desktop deployment as well. No disk migration or AWS deployment is performed by editing these files.
 
 ## Customize like a provisioning recipe
 
@@ -188,7 +204,7 @@ Defaults are 20 GiB root and 50 GiB persistent data, configurable with `rootGiB`
 - `provision/hooks/every-boot/*.sh`: root commands via systemd every boot, after persistent mounts.
 - GUI commands: trader's `~/.config/autostart/`. Seed user settings only if absent. Use `runuser -u trader -- ...` for non-root commands, with an explicit working directory as needed.
 
-Hooks run alphabetically and fail on nonzero exit. Write idempotent scripts. CDK uploads the provision directory as an asset; no Git credentials on the instance. Asset changes alter user data and force a desktop replacement. **Use clean `down` followed by deploy for provisioning changes** (an IP-only security-group edit does not need this), not an in-place deployment against a running instance. A direct replacement can race attachment of the single-AZ disk or interrupt applications. Update protection and `cdk diff` review are essential; do not rename foundation constructs or change its AZ casually.
+Hooks run alphabetically and fail on nonzero exit. Write idempotent scripts. CDK uploads the provision directory as an asset; no Git credentials on the instance. Asset/config changes update user data without replacing EC2. Save work and close applications before `npx cdk diff TwsDesktop --profile poweruser` and `npx cdk deploy TwsDesktop --profile poweruser --require-approval never`. CloudFormation can stop/start the EBS-backed instance to update user data; its public IPv4 can change. A root-owned `tws-config-update.service` reads user data using IMDSv2 and applies only the managed provisioning section when its hash changes. The initial AWS CLI setup and CloudFormation creation signals are never rerun. A successful apply records the hash; a failed apply is retried on the next boot. Ordinary boots skip unchanged provisioning, while custom boot hooks still run. Check `sudo journalctl -u tws-config-update.service` and `/var/log/tws-bootstrap.log`: CloudFormation completion does not verify this asynchronous configuration apply. Hooks and overlays must be idempotent; removed packages/files are not automatically uninstalled. Existing passwords, host keys and installed applications remain on the root disk. AMI, AZ or other immutable infrastructure changes can still require replacement; always review the diff. Use a deliberate clean `down`/deploy for those changes. Update protection and `cdk diff` review are essential; do not rename foundation constructs or change its AZ casually.
 
 ## S3
 
@@ -213,7 +229,7 @@ CDK does not fetch or resolve the secret during synthesis/deployment. EC2 runs `
 
 The instance role can read the selected parameter. An explicit deny prevents the SSM core managed policy's broad `GetParameter/GetParameters` grants from reading other parameters in this mode (SSM features that need additional parameters would require deliberately revising this restriction). For a customer-managed key, CDK grants `kms:Decrypt` on that key, restricted to SSM and the selected parameter's encryption context; the key policy must also allow it. With the default `aws/ssm` key, no additional key ARN is required. Parameter and key must be in the stack account/region. These credentials authorize the s3fs S3 requests independently of the EC2 role; scope the IAM user's S3 policy separately. Bucket SSE-KMS permissions are a separate concern.
 
-The service fetches the latest parameter value at each boot or `sudo systemctl restart tws-s3fs`. Close all files first. Rotating the **value at the same parameter name** needs no CDK deploy; restart the service or instance to pick it up. Changing the **parameter name**, S3 configuration or provisioning assets changes bootstrap and requires a reviewed desktop rebuild. The actual secret remains readable to root and is necessarily used locally by s3fs; it is not exposed in CloudFormation templates or the CDK asset.
+The service fetches the latest parameter value at each boot or `sudo systemctl restart tws-s3fs`. Close all files first. Rotating the **value at the same parameter name** needs no CDK deploy; restart the service or instance to pick it up. Changing the **parameter name**, S3 configuration or provisioning assets changes user data and applies on the next boot after deployment. The actual secret remains readable to root and is necessarily used locally by s3fs; it is not exposed in CloudFormation templates or the CDK asset.
 
 Inspect with `sudo systemctl status tws-s3fs` and `sudo journalctl -u tws-s3fs`. S3 is not a shared POSIX filesystem; avoid concurrent editing of the same object from multiple machines. Close/save applications before shutdown. The lifecycle helper syncs and performs a normal unmount, refusing a busy/failed unmount; there is no forced or lazy unmount fallback. A clean unmount is not a guarantee against every remote service failure, so verify important saves.
 
@@ -227,10 +243,10 @@ Inspect with `sudo systemctl status tws-s3fs` and `sudo journalctl -u tws-s3fs`.
 # Clean stop and remove ONLY compute; CDK prompts for destroy confirmation:
 .\scripts\workstation.ps1 down -ApplicationsClosed
 # Recreate the desktop, reusing the foundation disk:
-npx cdk deploy TwsDesktop --profile poweruser
+npx cdk deploy TwsDesktop --profile poweruser --require-approval never
 ```
 
-Stop/down checks common application processes, syncs and normally unmounts s3fs before stopping. A busy or failed unmount aborts the operation. It does not force-close applications and is not an exhaustive detector for arbitrary custom apps. Do not restart writers after initiating shutdown. If checks fail, inspect SSM command output and fix the issue; there is no force-delete fallback. If already stopped, down skips remote checks. Stopping is a normal shutdown, not hibernation. No automatic daily shutdown schedule is installed in this iteration.
+Stop/down checks common application processes, syncs and normally unmounts s3fs before stopping. A busy or failed unmount aborts the operation. It does not force-close applications and is not an exhaustive detector for arbitrary custom apps. Do not restart writers after initiating shutdown. The helper runs shutdown checks through SSH with passwordless sudo; if checks fail, inspect its SSH output and fix the issue; there is no force-delete fallback. If already stopped, down skips remote checks. Stopping is a normal shutdown, not hibernation. No automatic daily shutdown schedule is installed in this iteration.
 
 EBS, snapshots and CDK assets continue to cost money with compute down; public IPv4 is charged while allocated/running. Foundation deletion is intentionally protected and retains the disk; retained resources/snapshots require a separate deliberate cleanup. No resources are deleted automatically from existing S3 buckets. Test deployment/rebuild/reconnect/restore with a paper account before production use.
 
@@ -246,3 +262,5 @@ EBS, snapshots and CDK assets continue to cost money with compute down; public I
 
 - [Herdr installation](https://herdr.dev/docs/install/)
 - [Herdr remote SSH access](https://herdr.dev/docs/persistence-remote/)
+
+Migration note: the EC2 logical ID is pinned to its existing deployed ID so disabling replacement-on-user-data preserves the current instance. The boot updater must be installed once over SSH on older instances before deploying this migration. New instances install it automatically.

@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+exec 9>/run/tws-config-update.lock
+# --record is called by the child bootstrap while its parent holds the lock.
+if [ "${1:-}" != --record ]; then flock -n 9 || exit 0; fi
+work=$(mktemp -d /run/tws-config.XXXXXX)
+trap 'rm -rf "$work"' EXIT
+token=$(curl -fsS --retry 5 --connect-timeout 5 --max-time 15 -X PUT -H 'X-aws-ec2-metadata-token-ttl-seconds: 60' http://169.254.169.254/latest/api/token)
+curl -fsS --retry 5 --connect-timeout 5 --max-time 15 -H "X-aws-ec2-metadata-token: $token" http://169.254.169.254/latest/user-data > "$work/user-data"
+# Execute only the provisioning section, never first-launch installation or CF signals.
+awk '/^# TWS-APPLY-BEGIN$/ {copy=1; next} /^# TWS-APPLY-END$/ {copy=0; found=1} copy {print} END {if (!found) exit 1}' "$work/user-data" > "$work/apply"
+[ -s "$work/apply" ]
+hash=$(sha256sum "$work/apply" | cut -d ' ' -f1)
+if [ "${1:-}" = --record ]; then
+  printf '%s\n' "$hash" > /var/lib/tws-config-applied.sha256
+  exit 0
+fi
+[ "$hash" != "$(cat /var/lib/tws-config-applied.sha256 2>/dev/null || true)" ] || exit 0
+# Set strict shell options in the child; successful bootstrap records the hash.
+(umask 022; bash -euo pipefail "$work/apply")

@@ -61,6 +61,19 @@ test("persistent disk, IP-restricted RDP ingress and least-privilege defaults", 
   template.hasResource("AWS::EC2::Instance", {
     CreationPolicy: { ResourceSignal: { Count: 1, Timeout: "PT40M" } },
   });
+  const instances = template.findResources("AWS::EC2::Instance");
+  if (Object.keys(instances).join() !== "InstanceC1063A8763613f65227fc204")
+    throw new Error("Preserve deployed EC2 identity across provisioning updates");
+  const changedApp = new App();
+  const changedConfig = { ...config, prefix: "new-reports" };
+  const changedFoundation = new Foundation(changedApp, "TwsFoundation", { env }, changedConfig);
+  const changedDesktop = new Desktop(changedApp, "TwsDesktop", { env }, changedConfig, changedFoundation);
+  const changedInstances = Template.fromStack(changedDesktop).findResources("AWS::EC2::Instance");
+  if (Object.keys(changedInstances).join() !== Object.keys(instances).join())
+    throw new Error("Provisioning settings must not change EC2 identity");
+  if (JSON.stringify(Object.values<any>(instances)[0].Properties.UserData) ===
+      JSON.stringify(Object.values<any>(changedInstances)[0].Properties.UserData))
+    throw new Error("Changed provisioning settings must update user data");
   const serialized = JSON.stringify(template.toJSON());
   if (serialized.includes("s3:PutObject"))
     throw new Error("Read-only bucket must not grant writes");

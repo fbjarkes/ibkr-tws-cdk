@@ -15,3 +15,4 @@ nvme-cli
 openssh-server
 sudo
 neovim
+tailscale

@@ -14,6 +14,8 @@ run_hooks pre-install
 mapfile -t packages < <(sed 's/#.*//; /^[[:space:]]*$/d' packages.txt)
 apt-get -o DPkg::Lock::Timeout=600 update
 apt-get -o DPkg::Lock::Timeout=600 install -y "${packages[@]}"
+# Start at boot, without enrolling or changing an existing tailnet identity.
+systemctl enable --now tailscaled.service
 systemctl stop xrdp xrdp-sesman || true
 # Match the Nitro NVMe serial to the configured volume ID. Never guess /dev/nvme1n1.
 serial="${DATA_VOLUME_ID//-/}"

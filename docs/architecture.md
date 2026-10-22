@@ -22,7 +22,7 @@ flowchart TB
           igw["Internet Gateway<br/>Public subnet route: 0.0.0.0/0"]
           subgraph subnet["Public subnet — eu-north-1a · no NAT gateway"]
             subgraph sg["Security group attached to EC2 ENI<br/>Inbound: TCP 3389 + 22 from IP_ADDRESS/32 · Outbound: all"]
-              ec2["Amazon EC2 — m7i.xlarge<br/>Ubuntu 24.04 · 4 vCPU · 16 GiB<br/>Public IPv4 · IMDSv2 required<br/>xrdp / XFCE · OpenSSH · Herdr<br/>TWS installed manually · LibreOffice · browser<br/>SSM Agent · s3fs"]
+              ec2["Amazon EC2 — m7i.xlarge<br/>Ubuntu 24.04 · 4 vCPU · 16 GiB<br/>Public IPv4 · IMDSv2 required<br/>xrdp / XFCE · OpenSSH · Herdr · Tailscale<br/>TWS installed manually · LibreOffice · browser<br/>SSM Agent · s3fs"]
             end
           end
         end
@@ -38,6 +38,7 @@ flowchart TB
   cf -.->|"Provision / retain"| data
   client <-->|"RDP TLS · 3389 / SSH · 22<br/>Source IP_ADDRESS/32 only"| igw
   igw <--> ec2
+  client <-.->|"Tailscale after enrollment · SSH/RDP<br/>Encrypted tunnel or relay via Internet Gateway"| ec2
   ec2 <-->|"Outbound network path via Internet Gateway"| ib
   ec2 -->|"HTTPS via Internet Gateway<br/>Download provisioning asset"| assets
   ec2 <-->|"HTTPS via Internet Gateway<br/>Optional s3fs mount"| s3
@@ -63,12 +64,12 @@ flowchart TB
 ## Access and provisioning details
 
 - xrdp listens on IPv4 TCP 3389. The security group allows RDP (3389) and SSH (22) only from the single public source IPv4 configured by `IP_ADDRESS` in local `.env`, normalized to `/32`. SSH requires public-key authentication; the TWS API has no inbound rule.
-- RDP connects directly through the Internet Gateway with TLS. Tailscale is deferred and not installed. The EC2 public IPv4 is not an Elastic IP and can change after stop/start; the lifecycle status command shows the current destination.
+- RDP connects directly through the Internet Gateway with TLS. Tailscale is installed with its daemon enabled at boot; enroll manually to add private SSH/RDP access. Public IP-filtered access remains available. The EC2 public IPv4 is not an Elastic IP and can change after stop/start; the lifecycle status command shows the current destination.
 - Routine administration and lifecycle shutdown checks use SSH as `trader`, with passwordless sudo (`sudo -i` for root); the authorized SSH key is sufficient for administration. Systems Manager remains an optional fallback and supports Parameter Store; it works through outbound connections; no inbound management port is required. No VPC endpoints, VPN gateway, NAT gateway or load balancer is configured.
 - S3 and Systems Manager are regional services outside the VPC. EBS volumes are AZ resources attached to EC2, not resources inside its subnet. IAM is account-scoped.
 - Cloud-init downloads a CDK S3 asset, installs packages, copies managed files and executes custom hooks. Systemd runs the every-boot hooks. Asset access uses the instance role, not stored AWS access keys.
 - Localhost-only TWS API access is the recommended application setting; it must be enabled/configured in TWS. No separate IB Gateway process is provisioned.
-- S3 mounting is disabled until a bucket is configured. The s3fs service mounts the selected prefix at `/mnt/watchlists` on every boot. It uses the instance role by default or an optional SecureString-backed `/etc/passwd-s3fs` (root:root 0600). Parameter Store/KMS are regional services outside the VPC; only EC2 fetches the decrypted value at runtime. S3 is not the home directory or a native shared filesystem.
+- The default S3 mount uses `7050-trading-bot/watchlists/` through the EC2 role; clear `bucket` to disable it. The s3fs service mounts the selected prefix at `/mnt/watchlists` on every boot. It uses the instance role by default or an optional SecureString-backed `/etc/passwd-s3fs` (root:root 0600). Parameter Store/KMS are regional services outside the VPC; only EC2 fetches the decrypted value at runtime. S3 is not the home directory or a native shared filesystem.
 - TWS installation, desktop password setup and IBKR login remain first-use operations. Rebuilds retain home data, not running application sessions.
 
 ## Updating the client IP

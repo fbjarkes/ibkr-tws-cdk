@@ -9,7 +9,7 @@ An Ubuntu workstation for Interactive Brokers TWS, deployed with TypeScript CDK.
 
 ## Architecture
 
-The diagram shows the current CDK configuration. TWS is installed manually. The default S3 mount uses the EC2 instance role.
+The diagram shows the current CDK configuration. TWS is installed manually. The optional S3 mount uses the EC2 instance role.
 
 ```mermaid
 flowchart TB
@@ -22,7 +22,7 @@ flowchart TB
     subgraph region["AWS Region: eu-north-1 — Stockholm"]
       cf["AWS CloudFormation<br/>TwsFoundation + TwsDesktop"]
       assets["Amazon S3<br/>IbkrTwsToolkit asset bucket<br/>Provisioning scripts and files"]
-      s3["Amazon S3 — optional existing bucket<br/>7050-trading-bot / watchlists<br/>Instance role · full object access"]
+      s3["Amazon S3 — optional existing bucket<br/>YOUR_BUCKET / watchlists<br/>Instance role · full object access"]
       ssm["AWS Systems Manager<br/>Session Manager / Run Command"]
       params["SSM Parameter Store — optional<br/>SecureString s3fs credentials · KMS encryption"]
       dlm["Amazon Data Lifecycle Manager<br/>Daily snapshots at 02:00 UTC"]
@@ -115,6 +115,21 @@ SSH uses public keys only; direct root SSH is disabled. No account password or A
 
 On Win11, open `mstsc`, connect to the current EC2 public IP, and log in as `trader` using the RDP password. Choose Xorg if prompted. xrdp starts at boot; the XFCE session starts on login. Validate the self-signed certificate. Disconnecting preserves the session; logging out ends it.
 
+On Debian/Linux, use FreeRDP 3 (`sudo apt install freerdp3-x11`). This one-liner looks up the current public IP from the stack:
+
+```bash
+xfreerdp3 /v:$(aws ec2 describe-instances --region eu-north-1 --profile poweruser --instance-ids $(aws cloudformation describe-stacks --stack-name TwsDesktop --region eu-north-1 --profile poweruser --query "Stacks[0].Outputs[?OutputKey=='InstanceId'].OutputValue" --output text) --query 'Reservations[0].Instances[0].PublicIpAddress' --output text) /u:trader /bpp:24 +clipboard /dynamic-resolution
+```
+
+**Keep `/bpp:24`.** At the default 32-bit colour, Ubuntu's xrdp 0.9 sends planar-compressed bitmaps that FreeRDP 3 rejects: the session drops right after login with `planar_decompress failed`. If 24-bit still fails, try `/bpp:16` or `-compression`. The certificate, `BB_ERROR_BLOB`, `messageChannelId` and keycode warnings are harmless.
+
+### RDP responsiveness
+
+- **Network path:** over Tailscale, run `tailscale ping ibkr-tws`. `via DERP(...)` means relayed traffic with extra latency; the public-IP route may then be faster.
+- **Client:** a fixed size sends fewer pixels than `/dynamic-resolution`. Turn off sound and visual extras: `xfreerdp3 /v:ibkr-tws /u:trader /bpp:24 +clipboard /size:1920x1080 /network:broadband-high /audio-mode:2 -wallpaper -themes`. `/bpp:16` halves bandwidth, with some colour banding.
+- **Provisioned server tuning:** XFCE window compositing is turned off at each login (`/etc/xdg/autostart/tws-xfwm4-no-compositing.desktop`), xrdp uses a 4 MiB TCP send buffer, and `/etc/sysctl.d/90-xrdp.conf` raises `net.core.wmem_max` to allow it. To keep compositing, remove that autostart file from `provision/files/rootfs/etc/xdg/autostart/` and from the instance (overlay removals are not applied automatically).
+- **In the session:** turn off the XFCE screensaver/locker, use a flat theme without animations, and turn off Firefox smooth scrolling.
+
 A **reboot keeps the public IP**; stop/start or recreation can change it. Rebuilt instances have new host keys: verify the new fingerprint before updating `known_hosts`.
 
 Install TWS manually as `trader` under `/home/trader` (for example `~/Jts`). Enable socket API clients in TWS and prefer localhost-only access. IBKR login/MFA remains interactive. TWS is not installed or started automatically.
@@ -141,7 +156,7 @@ ssh -i ~/.ssh/id_ed25519 trader@TAILSCALE_IP
 sudo -i
 ```
 
-On Windows: `mstsc /v:TAILSCALE_IP`. Use the trader RDP password as usual. `--ssh=false` preserves ordinary OpenSSH with your defined key and passwordless sudo; Tailscale SSH is not enabled. No extra public security-group ports are opened. Public `IP_ADDRESS` filtering remains as a fallback; tailnet connections use Tailscale access controls instead.
+On Windows: `mstsc /v:TAILSCALE_IP`. On Linux: `xfreerdp3 /v:ibkr-tws /u:trader /bpp:24 +clipboard /dynamic-resolution` (MagicDNS name, or the Tailscale IP). Use the trader RDP password as usual. `--ssh=false` preserves ordinary OpenSSH with your defined key and passwordless sudo; Tailscale SSH is not enabled. No extra public security-group ports are opened. Public `IP_ADDRESS` filtering remains as a fallback; tailnet connections use Tailscale access controls instead.
 
 Enrollment survives reboot and stop/start. State is stored on the root disk (`/var/lib/tailscale`), so a rebuilt instance must be enrolled again; remove stale devices from the Tailscale admin console. Device approval/key expiry follow your tailnet policy. Existing enrolled machines retain their identity and preferences when provisioning runs again.
 
@@ -178,7 +193,7 @@ Hooks run alphabetically and must be idempotent. Use `runuser -u trader -- ...` 
 
 ## S3 mount
 
-Defaults mount `s3://7050-trading-bot/watchlists/` at `/mnt/watchlists` using temporary EC2 role credentials, with full object access confined to that prefix. Bucket location and prefix-limited listing are also allowed; bucket administration and other prefixes are excluded. No Parameter Store secret or static access key is needed.
+The S3 mount is off by default (`bucket` is blank). Set `bucket` in Git-ignored `config/local.json`, e.g. `{ "bucket": "YOUR_BUCKET" }`, to mount `s3://YOUR_BUCKET/watchlists/` at `/mnt/watchlists` using temporary EC2 role credentials, with full object access confined to that prefix. Bucket location and prefix-limited listing are also allowed; bucket administration and other prefixes are excluded. No Parameter Store secret or static access key is needed.
 
 Change `bucket`, `prefix`, `s3Region` and `s3ReadWrite` in configuration, or clear `bucket` to disable the mount. s3fs mounts the existing bucket/prefix at `/mnt/watchlists` through `tws-s3fs.service`, at boot. It uses trader's UID/GID (UID 1100), `allow_other`, `mp_umask=022` and `compat_dir`. `s3ReadWrite: true` grants `s3:*` on objects under the configured prefix and enables writes; false limits object access to reads. The prefix and required permissions must already exist; SSE-KMS buckets may need additional KMS permissions.
 

@@ -77,6 +77,12 @@ sed -i '0,/^port=/{s|^port=.*|port=tcp://0.0.0.0:3389|;}' /etc/xrdp/xrdp.ini
 sed -i 's/^security_layer=.*/security_layer=tls/' /etc/xrdp/xrdp.ini
 # Preserve the remote desktop session when the client disconnects.
 sed -i 's/^KillDisconnected=.*/KillDisconnected=false/; s/^DisconnectedTimeLimit=.*/DisconnectedTimeLimit=0/' /etc/xrdp/sesman.ini
+# Larger send buffer for smoother screen updates; net.core.wmem_max is raised in the overlay sysctl file.
+if grep -Eq '^#?tcp_send_buffer_bytes=' /etc/xrdp/xrdp.ini; then
+  sed -i 's/^#\?tcp_send_buffer_bytes=.*/tcp_send_buffer_bytes=4194304/' /etc/xrdp/xrdp.ini
+else
+  sed -i '0,/^\[Globals\]/{s/^\[Globals\]/[Globals]\ntcp_send_buffer_bytes=4194304/;}' /etc/xrdp/xrdp.ini
+fi
 mkdir -p /etc/systemd/system/xrdp.service.d /etc/systemd/system/xrdp-sesman.service.d
 for service in xrdp xrdp-sesman; do
   printf '[Unit]\nRequiresMountsFor=/home/trader\n' > "/etc/systemd/system/$service.service.d/persistent-home.conf"
@@ -120,6 +126,7 @@ fi
 # Preserve existing system-directory permissions when merging the overlay.
 tar -C files/rootfs -cf - . | tar -C / --no-same-owner --no-same-permissions --no-overwrite-dir -xf -
 chown -R trader:trader /home/trader/.config
+sysctl --system >/dev/null
 run_hooks post-install
 if [ ! -e /srv/tws/.first-use-complete ]; then
   run_hooks first-use

@@ -13,7 +13,7 @@ flowchart TB
     subgraph region["AWS Region: eu-north-1 — Stockholm"]
       cf["AWS CloudFormation<br/>TwsFoundation + TwsDesktop"]
       assets["Amazon S3<br/>IbkrTwsToolkit asset bucket<br/>Provisioning scripts and files"]
-      s3["Amazon S3 — optional existing bucket<br/>Selected bucket / prefix<br/>Read-only by default"]
+      s3["Amazon S3 — optional existing bucket<br/>7050-trading-bot / watchlists<br/>Instance role · full object access"]
       ssm["AWS Systems Manager<br/>Session Manager / Run Command"]
       params["SSM Parameter Store — optional<br/>SecureString s3fs credentials · KMS encryption"]
       dlm["Amazon Data Lifecycle Manager<br/>Daily snapshots at 02:00 UTC"]

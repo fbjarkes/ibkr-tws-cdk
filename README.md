@@ -4,7 +4,7 @@ An Ubuntu workstation for Interactive Brokers TWS, deployed with TypeScript CDK.
 
 - **TwsFoundation:** single public subnet in `eu-north-1a`, retained encrypted 50 GiB gp3 data disk, daily snapshots at 02:00 UTC with seven retained. Stack termination protection is enabled.
 - **TwsDesktop:** Ubuntu 24.04 amd64, On-Demand `m7i.xlarge` (4 vCPU / 16 GiB), encrypted disposable 20 GiB root disk, XFCE/xrdp, OpenSSH, LibreOffice, Firefox, Neovim and Herdr.
-- SSH and RDP accept only `IP_ADDRESS/32`. Tailscale is deferred; the TWS API has no inbound rule. EC2 requires IMDSv2.
+- Public SSH and RDP accept only `IP_ADDRESS/32`. Tailscale is installed for optional private access; the TWS API has no inbound rule. EC2 requires IMDSv2.
 - `/srv/tws/home` is mounted at `/home/trader`. Home files survive desktop rebuilds; root-installed software, account passwords and SSH host keys do not. The data disk must remain in its AZ and attach to only one desktop.
 
 ## Architecture
@@ -31,7 +31,7 @@ flowchart TB
           igw["Internet Gateway<br/>Public subnet route: 0.0.0.0/0"]
           subgraph subnet["Public subnet — eu-north-1a · no NAT gateway"]
             subgraph sg["Security group attached to EC2 ENI<br/>Inbound: TCP 3389 + 22 from IP_ADDRESS/32 · Outbound: all"]
-              ec2["Amazon EC2 — m7i.xlarge<br/>Ubuntu 24.04 · 4 vCPU · 16 GiB<br/>Public IPv4 · IMDSv2 required<br/>xrdp / XFCE · OpenSSH · Herdr<br/>TWS installed manually · LibreOffice · browser<br/>SSM Agent · s3fs"]
+              ec2["Amazon EC2 — m7i.xlarge<br/>Ubuntu 24.04 · 4 vCPU · 16 GiB<br/>Public IPv4 · IMDSv2 required<br/>xrdp / XFCE · OpenSSH · Herdr · Tailscale<br/>TWS installed manually · LibreOffice · browser<br/>SSM Agent · s3fs"]
             end
           end
         end
@@ -47,6 +47,7 @@ flowchart TB
   cf -.->|"Provision / retain"| data
   client <-->|"RDP TLS · 3389 / SSH · 22<br/>Source IP_ADDRESS/32 only"| igw
   igw <--> ec2
+  client <-.->|"Tailscale after enrollment · SSH/RDP<br/>Encrypted tunnel or relay via Internet Gateway"| ec2
   ec2 <-->|"Outbound network path via Internet Gateway"| ib
   ec2 -->|"HTTPS via Internet Gateway<br/>Download provisioning asset"| assets
   ec2 <-->|"HTTPS via Internet Gateway<br/>Optional s3fs mount"| s3
@@ -119,6 +120,30 @@ A **reboot keeps the public IP**; stop/start or recreation can change it. Rebuil
 Install TWS manually as `trader` under `/home/trader` (for example `~/Jts`). Enable socket API clients in TWS and prefer localhost-only access. IBKR login/MFA remains interactive. TWS is not installed or started automatically.
 
 Herdr is installed at `~/.local/bin/herdr`, pinned by version and checksum in `provision/herdr-release.json`. Run it directly, or configure an SSH alias and use `herdr --remote YOUR_ALIAS` from a client with Herdr installed. Agent credentials and automatic Herdr startup are not configured.
+
+## Join Tailscale later
+
+Tailscale installs from its official stable apt repository on new instances and provisioning updates. `tailscaled` starts at boot; enrollment is manual and no auth key is stored in Git/CDK. For an existing instance, deploy the provisioning update, or run the standalone installer over SSH without restarting the workstation.
+
+On EC2, after installation:
+
+```bash
+sudo tailscale up --hostname=ibkr-tws --ssh=false
+# Open the displayed login URL in your browser and approve the device.
+tailscale ip -4
+tailscale status
+```
+
+Install Tailscale on your Windows, Debian or macOS client and sign into the same tailnet. Allow TCP 22 and 3389 in your tailnet access policy. Connect using the reported Tailscale IP or MagicDNS hostname:
+
+```bash
+ssh -i ~/.ssh/id_ed25519 trader@TAILSCALE_IP
+sudo -i
+```
+
+On Windows: `mstsc /v:TAILSCALE_IP`. Use the trader RDP password as usual. `--ssh=false` preserves ordinary OpenSSH with your defined key and passwordless sudo; Tailscale SSH is not enabled. No extra public security-group ports are opened. Public `IP_ADDRESS` filtering remains as a fallback; tailnet connections use Tailscale access controls instead.
+
+Enrollment survives reboot and stop/start. State is stored on the root disk (`/var/lib/tailscale`), so a rebuilt instance must be enrolled again; remove stale devices from the Tailscale admin console. Device approval/key expiry follow your tailnet policy. Existing enrolled machines retain their identity and preferences when provisioning runs again.
 
 ## Update IP, packages and services
 
@@ -205,3 +230,5 @@ The EC2 logical ID is pinned to preserve its deployed identity. Older instances 
 - [EC2 user-data update behavior](https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-ec2-instance.html#cfn-ec2-instance-userdata)
 - [s3fs options](https://github.com/s3fs-fuse/s3fs-fuse/blob/master/doc/man/s3fs.1.in)
 - [Herdr installation](https://herdr.dev/docs/install/) and [remote access](https://herdr.dev/docs/persistence-remote/)
+
+- [Tailscale Linux installation](https://tailscale.com/docs/install/linux)

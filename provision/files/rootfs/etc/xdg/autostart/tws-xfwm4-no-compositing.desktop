@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Disable window compositing for RDP
+Comment=Window compositing makes RDP sessions noticeably slower
+Exec=xfconf-query -c xfwm4 -p /general/use_compositing -n -t bool -s false
+OnlyShowIn=XFCE;
+NoDisplay=true

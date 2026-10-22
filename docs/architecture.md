@@ -13,7 +13,7 @@ flowchart TB
     subgraph region["AWS Region: eu-north-1 — Stockholm"]
       cf["AWS CloudFormation<br/>TwsFoundation + TwsDesktop"]
       assets["Amazon S3<br/>IbkrTwsToolkit asset bucket<br/>Provisioning scripts and files"]
-      s3["Amazon S3 — optional existing bucket<br/>7050-trading-bot / watchlists<br/>Instance role · full object access"]
+      s3["Amazon S3 — optional existing bucket<br/>YOUR_BUCKET / watchlists<br/>Instance role · full object access"]
       ssm["AWS Systems Manager<br/>Session Manager / Run Command"]
       params["SSM Parameter Store — optional<br/>SecureString s3fs credentials · KMS encryption"]
       dlm["Amazon Data Lifecycle Manager<br/>Daily snapshots at 02:00 UTC"]
@@ -65,11 +65,12 @@ flowchart TB
 
 - xrdp listens on IPv4 TCP 3389. The security group allows RDP (3389) and SSH (22) only from the single public source IPv4 configured by `IP_ADDRESS` in local `.env`, normalized to `/32`. SSH requires public-key authentication; the TWS API has no inbound rule.
 - RDP connects directly through the Internet Gateway with TLS. Tailscale is installed with its daemon enabled at boot; enroll manually to add private SSH/RDP access. Public IP-filtered access remains available. The EC2 public IPv4 is not an Elastic IP and can change after stop/start; the lifecycle status command shows the current destination.
+- Ubuntu 24.04 ships xrdp 0.9, which has no RDP graphics pipeline (GFX) support. FreeRDP 3 clients must connect with `/bpp:24` (or lower) to avoid planar-bitmap decode failures. Provisioning turns off XFCE compositing and raises the xrdp TCP send buffer (with a matching `net.core.wmem_max` sysctl) for responsiveness; see the README.
 - Routine administration and lifecycle shutdown checks use SSH as `trader`, with passwordless sudo (`sudo -i` for root); the authorized SSH key is sufficient for administration. Systems Manager remains an optional fallback and supports Parameter Store; it works through outbound connections; no inbound management port is required. No VPC endpoints, VPN gateway, NAT gateway or load balancer is configured.
 - S3 and Systems Manager are regional services outside the VPC. EBS volumes are AZ resources attached to EC2, not resources inside its subnet. IAM is account-scoped.
 - Cloud-init downloads a CDK S3 asset, installs packages, copies managed files and executes custom hooks. Systemd runs the every-boot hooks. Asset access uses the instance role, not stored AWS access keys.
 - Localhost-only TWS API access is the recommended application setting; it must be enabled/configured in TWS. No separate IB Gateway process is provisioned.
-- The default S3 mount uses `7050-trading-bot/watchlists/` through the EC2 role; clear `bucket` to disable it. The s3fs service mounts the selected prefix at `/mnt/watchlists` on every boot. It uses the instance role by default or an optional SecureString-backed `/etc/passwd-s3fs` (root:root 0600). Parameter Store/KMS are regional services outside the VPC; only EC2 fetches the decrypted value at runtime. S3 is not the home directory or a native shared filesystem.
+- The optional S3 mount uses `YOUR_BUCKET/watchlists/` through the EC2 role; it is off while `bucket` is blank and is normally enabled in Git-ignored `config/local.json`. The s3fs service mounts the selected prefix at `/mnt/watchlists` on every boot. It uses the instance role by default or an optional SecureString-backed `/etc/passwd-s3fs` (root:root 0600). Parameter Store/KMS are regional services outside the VPC; only EC2 fetches the decrypted value at runtime. S3 is not the home directory or a native shared filesystem.
 - TWS installation, desktop password setup and IBKR login remain first-use operations. Rebuilds retain home data, not running application sessions.
 
 ## Updating the client IP

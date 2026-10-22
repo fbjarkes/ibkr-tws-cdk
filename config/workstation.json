@@ -3,9 +3,9 @@
   "availabilityZone": "eu-north-1a",
   "instanceType": "m7i.xlarge",
   "dataGiB": 50,
-  "bucket": "",
+  "bucket": "7050-trading-bot",
   "prefix": "watchlists",
-  "s3ReadWrite": false,
+  "s3ReadWrite": true,
   "amiId": "ami-0fd9576cca965bd19",
   "s3Region": "eu-north-1",
   "rootGiB": 20

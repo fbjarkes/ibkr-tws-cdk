@@ -133,7 +133,9 @@ export class Desktop extends Stack {
       );
       role.addToPolicy(
         new iam.PolicyStatement({
-          actions: ["s3:ListBucket"],
+          actions: config.s3ReadWrite
+            ? ["s3:ListBucket", "s3:ListBucketVersions"]
+            : ["s3:ListBucket"],
           resources: [`arn:${this.partition}:s3:::${config.bucket}`],
           ...(prefix
             ? {
@@ -146,14 +148,9 @@ export class Desktop extends Stack {
       );
       role.addToPolicy(
         new iam.PolicyStatement({
-          actions: config.s3ReadWrite
-            ? [
-                "s3:GetObject",
-                "s3:PutObject",
-                "s3:DeleteObject",
-                "s3:AbortMultipartUpload",
-              ]
-            : ["s3:GetObject"],
+          // Full object-level S3 access, restricted to the configured prefix.
+          // Bucket administration is excluded by the object-only resource ARN.
+          actions: config.s3ReadWrite ? ["s3:*"] : ["s3:GetObject"],
           resources: [`arn:${this.partition}:s3:::${config.bucket}/${prefix}*`],
         }),
       );

@@ -9,7 +9,7 @@ An Ubuntu workstation for Interactive Brokers TWS, deployed with TypeScript CDK.
 
 ## Architecture
 
-The diagram shows the current CDK configuration. TWS is installed manually, and the S3 data mount is optional.
+The diagram shows the current CDK configuration. TWS is installed manually. The default S3 mount uses the EC2 instance role.
 
 ```mermaid
 flowchart TB
@@ -22,7 +22,7 @@ flowchart TB
     subgraph region["AWS Region: eu-north-1 — Stockholm"]
       cf["AWS CloudFormation<br/>TwsFoundation + TwsDesktop"]
       assets["Amazon S3<br/>IbkrTwsToolkit asset bucket<br/>Provisioning scripts and files"]
-      s3["Amazon S3 — optional existing bucket<br/>Selected bucket / prefix<br/>Read-only by default"]
+      s3["Amazon S3 — optional existing bucket<br/>7050-trading-bot / watchlists<br/>Instance role · full object access"]
       ssm["AWS Systems Manager<br/>Session Manager / Run Command"]
       params["SSM Parameter Store — optional<br/>SecureString s3fs credentials · KMS encryption"]
       dlm["Amazon Data Lifecycle Manager<br/>Daily snapshots at 02:00 UTC"]
@@ -151,9 +151,11 @@ Save work before provisioning updates. CDK can report **conditional replacement*
 
 Hooks run alphabetically and must be idempotent. Use `runuser -u trader -- ...` for user commands. Add custom systemd unit files through the overlay and enable them in a post-install hook. Removed overlay files are not automatically deleted. Keep secrets out of provisioning assets and Git.
 
-## Optional S3 mount
+## S3 mount
 
-Set `bucket`, `prefix` (default `watchlists`), `s3Region` and `s3ReadWrite` in configuration. s3fs mounts the existing bucket/prefix at `/mnt/watchlists` through `tws-s3fs.service`, at boot. It uses trader's UID/GID (UID 1100), `allow_other`, `mp_umask=022` and `compat_dir`. Access is read-only unless `s3ReadWrite` is true. The prefix and required permissions must already exist; SSE-KMS buckets may need additional KMS permissions.
+Defaults mount `s3://7050-trading-bot/watchlists/` at `/mnt/watchlists` using temporary EC2 role credentials, with full object access confined to that prefix. Bucket location and prefix-limited listing are also allowed; bucket administration and other prefixes are excluded. No Parameter Store secret or static access key is needed.
+
+Change `bucket`, `prefix`, `s3Region` and `s3ReadWrite` in configuration, or clear `bucket` to disable the mount. s3fs mounts the existing bucket/prefix at `/mnt/watchlists` through `tws-s3fs.service`, at boot. It uses trader's UID/GID (UID 1100), `allow_other`, `mp_umask=022` and `compat_dir`. `s3ReadWrite: true` grants `s3:*` on objects under the configured prefix and enables writes; false limits object access to reads. The prefix and required permissions must already exist; SSE-KMS buckets may need additional KMS permissions.
 
 Choose credentials:
 

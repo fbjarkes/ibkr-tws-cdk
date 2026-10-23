@@ -3,7 +3,7 @@
 An Ubuntu workstation for Interactive Brokers TWS, deployed with TypeScript CDK.
 
 - **TwsFoundation:** single public subnet in `eu-north-1a`, retained encrypted 50 GiB gp3 data disk, daily snapshots at 02:00 UTC with seven retained. Stack termination protection is enabled.
-- **TwsDesktop:** Ubuntu 24.04 amd64, On-Demand `m7i.xlarge` (4 vCPU / 16 GiB), encrypted disposable 20 GiB root disk, XFCE/xrdp, OpenSSH, LibreOffice, Firefox, Neovim and Herdr.
+- **TwsDesktop:** Ubuntu 24.04 amd64, On-Demand `m7i.xlarge` (4 vCPU / 16 GiB), encrypted disposable 20 GiB root disk, XFCE/xrdp, OpenSSH, LibreOffice, Firefox, Neovim, Herdr, Python and uv.
 - Public SSH and RDP accept only `IP_ADDRESS/32`. Tailscale is installed for optional private access; the TWS API has no inbound rule. EC2 requires IMDSv2.
 - `/srv/tws/home` is mounted at `/home/trader`. Home files survive desktop rebuilds; root-installed software, account passwords and SSH host keys do not. The data disk must remain in its AZ and attach to only one desktop.
 
@@ -135,6 +135,21 @@ A **reboot keeps the public IP**; stop/start or recreation can change it. Rebuil
 Install TWS manually as `trader` under `/home/trader` (for example `~/Jts`). Enable socket API clients in TWS and prefer localhost-only access. IBKR login/MFA remains interactive. TWS is not installed or started automatically.
 
 Herdr is installed at `~/.local/bin/herdr`, pinned by version and checksum in `provision/herdr-release.json`. Run it directly, or configure an SSH alias and use `herdr --remote YOUR_ALIAS` from a client with Herdr installed. Agent credentials and automatic Herdr startup are not configured.
+
+## Python and uv
+
+Provisioning installs Ubuntu Python 3, `python` as its alias, pip, venv, development headers and build tools. uv/uvx install system-wide in `/usr/local/bin`, pinned by version and SHA-256 in `provision/uv-release.json`. The installer does not change user shell profiles or replace Ubuntu's Python.
+
+```bash
+python --version
+python3 --version
+uv --version
+cd ~/trading-bot
+uv sync
+uv run python --version
+```
+
+`uv sync` uses the project's Python requirement and lockfile, creating `.venv` as needed. Use virtual environments for dependencies rather than installing into the Ubuntu-managed Python. Project-specific Python versions can be managed with uv; system Python remains Ubuntu's default.
 
 ## Join Tailscale later
 

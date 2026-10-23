@@ -71,6 +71,7 @@ install -d /etc/systemd/system/ssh.service.d
 printf '[Unit]\nRequiresMountsFor=/home/trader\n' > /etc/systemd/system/ssh.service.d/persistent-home.conf
 /usr/sbin/sshd -t
 bash files/install-herdr.sh
+bash files/install-uv.sh
 # Standard RDP listener; the EC2 security group allows one configured client IPv4.
 sed -i '0,/^port=/{s|^port=.*|port=tcp://0.0.0.0:3389|;}' /etc/xrdp/xrdp.ini
 # Require TLS for the direct RDP connection.

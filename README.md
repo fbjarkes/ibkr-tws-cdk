@@ -171,7 +171,16 @@ ssh -i ~/.ssh/id_ed25519 trader@TAILSCALE_IP
 sudo -i
 ```
 
-On Windows: `mstsc /v:TAILSCALE_IP`. On Linux: `xfreerdp3 /v:ibkr-tws /u:trader /bpp:24 +clipboard /dynamic-resolution` (MagicDNS name, or the Tailscale IP). Use the trader RDP password as usual. `--ssh=false` preserves ordinary OpenSSH with your defined key and passwordless sudo; Tailscale SSH is not enabled. No extra public security-group ports are opened. Public `IP_ADDRESS` filtering remains as a fallback; tailnet connections use Tailscale access controls instead.
+On Windows: `mstsc /v:TAILSCALE_IP`. On Linux: `xfreerdp3 /v:ibkr-tws /u:trader /bpp:24 +clipboard /dynamic-resolution` (MagicDNS name, or the Tailscale IP). Use the trader RDP password as usual.
+
+To skip the password prompt:
+
+```bash
+TRADER_PASS=<PASS>  # TRADER_PASS from .env
+xfreerdp3 /v:ibkr-tws /u:trader /p:"$TRADER_PASS" /bpp:24 +clipboard /dynamic-resolution
+```
+
+Other local users can see `/p:` in the process list while FreeRDP runs, so only use this on a single-user client. `--ssh=false` preserves ordinary OpenSSH with your defined key and passwordless sudo; Tailscale SSH is not enabled. No extra public security-group ports are opened. Public `IP_ADDRESS` filtering remains as a fallback; tailnet connections use Tailscale access controls instead.
 
 Enrollment survives reboot and stop/start. State is stored on the root disk (`/var/lib/tailscale`), so a rebuilt instance must be enrolled again; remove stale devices from the Tailscale admin console. Device approval/key expiry follow your tailnet policy. Existing enrolled machines retain their identity and preferences when provisioning runs again.
 

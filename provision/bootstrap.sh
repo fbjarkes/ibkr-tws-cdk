@@ -105,9 +105,10 @@ if systemctl is-active --quiet tws-s3fs.service; then systemctl stop tws-s3fs.se
 if [ -z "$S3_BUCKET" ] && [ -f /etc/systemd/system/tws-s3fs.service ]; then
   systemctl disable tws-s3fs.service
 fi
+# Retired Parameter Store credential mode; s3fs uses the instance role only.
+rm -f /usr/local/sbin/tws-fetch-s3-credentials /etc/passwd-s3fs
 if [ -n "$S3_BUCKET" ]; then
   install -d -o trader -g trader -m 0755 /mnt/watchlists
-  install -m 0755 files/tws-fetch-s3-credentials /usr/local/sbin/tws-fetch-s3-credentials
   install -m 0755 files/tws-mount-s3 /usr/local/sbin/tws-mount-s3
   install -m 0755 files/tws-wait-s3 /usr/local/sbin/tws-wait-s3
   install -m 0644 files/tws-s3fs.service /etc/systemd/system/tws-s3fs.service
@@ -118,7 +119,6 @@ S3_PREFIX=$S3_PREFIX
 S3_REGION=$S3_REGION
 S3_WRITABLE=$S3_WRITABLE
 AWS_DEFAULT_REGION=$AWS_DEFAULT_REGION
-PARAM_STORE_KEY_S3_PASSWD=$PARAM_STORE_KEY_S3_PASSWD
 EOF
   chmod 0600 /etc/tws-s3.env
   umask 022

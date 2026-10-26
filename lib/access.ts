@@ -32,31 +32,6 @@ export function loadLocalEnvironment(
   return { ...environment, ...values };
 }
 
-export function s3ParameterSettings(environment: NodeJS.ProcessEnv) {
-  const s3PasswdParameter = environment.PARAM_STORE_KEY_S3_PASSWD?.trim() || "";
-  const s3PasswdKmsKeyArn = environment.S3_PASSWD_KMS_KEY_ARN?.trim() || "";
-  if (
-    s3PasswdParameter &&
-    !/^\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*$/.test(s3PasswdParameter)
-  ) {
-    throw new Error(
-      "PARAM_STORE_KEY_S3_PASSWD must be an absolute parameter name, without wildcards or a version suffix",
-    );
-  }
-  if (
-    s3PasswdKmsKeyArn &&
-    (!s3PasswdParameter ||
-      !/^arn:aws(?:-us-gov|-cn)?:kms:[a-z0-9-]+:[0-9]{12}:key\/[a-f0-9-]+$/.test(
-        s3PasswdKmsKeyArn,
-      ))
-  ) {
-    throw new Error(
-      "S3_PASSWD_KMS_KEY_ARN requires a parameter name and a valid customer-managed KMS key ARN",
-    );
-  }
-  return { s3PasswdParameter, s3PasswdKmsKeyArn };
-}
-
 /** Only public OpenSSH keys, without identifying comments or authorized_keys options. */
 export function parseSshPublicKeys(text: string): string[] {
   return text

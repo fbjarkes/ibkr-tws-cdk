@@ -24,7 +24,6 @@ flowchart TB
       assets["Amazon S3<br/>IbkrTwsToolkit asset bucket<br/>Provisioning scripts and files"]
       s3["Amazon S3 — optional existing bucket<br/>YOUR_BUCKET / watchlists<br/>Instance role · full object access"]
       ssm["AWS Systems Manager<br/>Session Manager / Run Command"]
-      params["SSM Parameter Store — optional<br/>SecureString s3fs credentials · KMS encryption"]
       dlm["Amazon Data Lifecycle Manager<br/>Daily snapshots at 02:00 UTC"]
       snapshots["Amazon EBS snapshots<br/>Retain seven daily snapshots"]
         subgraph vpc["Amazon VPC — single-AZ subnet layout"]
@@ -52,7 +51,6 @@ flowchart TB
   ec2 -->|"HTTPS via Internet Gateway<br/>Download provisioning asset"| assets
   ec2 <-->|"HTTPS via Internet Gateway<br/>Optional s3fs mount"| s3
   ec2 -->|"Outbound HTTPS via Internet Gateway"| ssm
-  ec2 -->|"GetParameter with decryption<br/>Optional password-file mode"| params
   iam -.->|"Temporary role credentials"| ec2
   iam -.->|"Snapshot permissions"| dlm
   ec2 --- root
@@ -217,23 +215,11 @@ Hooks run alphabetically and must be idempotent. Use `runuser -u trader -- ...` 
 
 ## S3 mount
 
-The S3 mount is off by default (`bucket` is blank). Set `bucket` in Git-ignored `config/local.json`, e.g. `{ "bucket": "YOUR_BUCKET" }`, to mount `s3://YOUR_BUCKET/watchlists/` at `/mnt/watchlists` using temporary EC2 role credentials, with full object access confined to that prefix. Bucket location and prefix-limited listing are also allowed; bucket administration and other prefixes are excluded. No Parameter Store secret or static access key is needed.
+The S3 mount is off by default (`bucket` is blank). Set `bucket` in Git-ignored `config/local.json`, e.g. `{ "bucket": "YOUR_BUCKET" }`, to mount `s3://YOUR_BUCKET/watchlists/` at `/mnt/watchlists` using temporary EC2 role credentials, with full object access confined to that prefix. Bucket location and prefix-limited listing are also allowed; bucket administration and other prefixes are excluded. No static access keys are used.
 
 Change `bucket`, `prefix`, `s3Region` and `s3ReadWrite` in configuration, or clear `bucket` to disable the mount. s3fs mounts the existing bucket/prefix at `/mnt/watchlists` through `tws-s3fs.service`, at boot. It uses trader's UID/GID (UID 1100), `allow_other`, `mp_umask=022` and `compat_dir`. `s3ReadWrite: true` grants `s3:*` on objects under the configured prefix and enables writes; false limits object access to reads. The prefix and required permissions must already exist; SSE-KMS buckets may need additional KMS permissions.
 
-Choose credentials:
-
-- **Instance role:** leave `PARAM_STORE_KEY_S3_PASSWD` blank. Uses temporary role credentials scoped to the configured bucket/prefix.
-- **Parameter Store:** create a SecureString in the stack account/region containing `ACCESS_KEY_ID:SECRET_ACCESS_KEY`. Give that IAM key its own limited S3 permissions. Put only references in `.env`:
-
-```dotenv
-PARAM_STORE_KEY_S3_PASSWD=/ibkr-tws/s3fs/passwd
-S3_PASSWD_KMS_KEY_ARN=
-```
-
-The optional key ARN is for a customer-managed Parameter Store KMS key. EC2 fetches the secret when the mount service starts and writes `/etc/passwd-s3fs` as root, mode 0600; CDK never resolves it. Other parameter reads are denied. A custom KMS key policy must also permit decryption. Never put credentials in `.env`, Git or shell history.
-
-Rotating the value at the same parameter name needs no deploy: close files and restart `tws-s3fs`. Changing the reference or mount settings requires deployment. S3 is not POSIX storage: avoid concurrent edits and verify important saves. The shutdown helper refuses busy mounts rather than forcing an unmount.
+Changing mount settings requires deployment. S3 is not POSIX storage: avoid concurrent edits and verify important saves. The shutdown helper refuses busy mounts rather than forcing an unmount.
 
 ## Stop, start and rebuild
 

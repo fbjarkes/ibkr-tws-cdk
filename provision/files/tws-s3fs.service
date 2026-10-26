@@ -7,7 +7,6 @@ Before=tws-custom-boot.service
 [Service]
 Type=simple
 EnvironmentFile=/etc/tws-s3.env
-ExecStartPre=/usr/local/sbin/tws-fetch-s3-credentials
 ExecStart=/usr/local/sbin/tws-mount-s3
 ExecStartPost=/usr/local/sbin/tws-wait-s3
 ExecStop=/bin/sh -c 'if mountpoint -q /mnt/watchlists; then umount /mnt/watchlists; fi'

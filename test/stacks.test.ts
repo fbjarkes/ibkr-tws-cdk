@@ -86,5 +86,5 @@ test("persistent disk, IP-restricted RDP ingress and least-privilege defaults", 
     (statement) => statement.Effect === "Deny" && statement.Resource === "*",
   );
   if (!deny?.Action.includes("ssm:GetParameter"))
-    throw new Error("Without a password parameter, all SSM parameter reads must be denied");
+    throw new Error("All SSM parameter reads must be denied");
 });

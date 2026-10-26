@@ -25,8 +25,6 @@ export interface Config {
   s3ReadWrite: boolean;
   amiId: string;
   rdpCidr: string;
-  s3PasswdParameter?: string;
-  s3PasswdKmsKeyArn?: string;
   s3Region?: string;
 }
 export class Foundation extends Stack {
@@ -121,7 +119,7 @@ export class Desktop extends Stack {
     });
     // Asset.grantRead() would expose the whole CDK bootstrap bucket (every app's assets).
     asset.bucket.grantRead(role, asset.s3ObjectKey);
-    if (config.bucket && !config.s3PasswdParameter) {
+    if (config.bucket) {
       const prefix = config.prefix
         ? config.prefix.replace(/\/$/, "") + "/"
         : "";
@@ -155,14 +153,6 @@ export class Desktop extends Stack {
         }),
       );
     }
-    const parameterArn =
-      config.bucket && config.s3PasswdParameter
-        ? this.formatArn({
-            service: "ssm",
-            resource: "parameter",
-            resourceName: config.s3PasswdParameter.slice(1),
-          })
-        : undefined;
     // AmazonSSMManagedInstanceCore allows ssm:GetParameter(s) on '*'. Without this deny the
     // desktop could read every parameter in the account, including SecureStrings under aws/ssm.
     role.addToPolicy(
@@ -173,33 +163,9 @@ export class Desktop extends Stack {
           "ssm:GetParameters",
           "ssm:GetParametersByPath",
         ],
-        ...(parameterArn
-          ? { notResources: [parameterArn] }
-          : { resources: ["*"] }),
+        resources: ["*"],
       }),
     );
-    if (parameterArn) {
-      role.addToPolicy(
-        new iam.PolicyStatement({
-          actions: ["ssm:GetParameter"],
-          resources: [parameterArn],
-        }),
-      );
-      if (config.s3PasswdKmsKeyArn) {
-        role.addToPolicy(
-          new iam.PolicyStatement({
-            actions: ["kms:Decrypt"],
-            resources: [config.s3PasswdKmsKeyArn],
-            conditions: {
-              StringEquals: {
-                "kms:ViaService": `ssm.${this.region}.${this.urlSuffix}`,
-                "kms:EncryptionContext:PARAMETER_ARN": parameterArn,
-              },
-            },
-          }),
-        );
-      }
-    }
     role.addToPolicy(
       new iam.PolicyStatement({
         actions: ["cloudformation:SignalResource"],
@@ -273,7 +239,7 @@ export class Desktop extends Stack {
       "mv /opt/tws-provision.next /opt/tws-provision",
       `export DATA_VOLUME_ID='${foundation.volume.volumeId}'`,
       `export S3_BUCKET='${config.bucket}' S3_PREFIX='${config.prefix}' S3_WRITABLE='${config.s3ReadWrite}' AWS_DEFAULT_REGION='${this.region}'`,
-      `export PARAM_STORE_KEY_S3_PASSWD='${config.s3PasswdParameter || ""}' S3_REGION='${config.s3Region || config.region}'`,
+      `export S3_REGION='${config.s3Region || config.region}'`,
       `export SSH_AUTHORIZED_KEYS_B64='${Buffer.from((config.sshPublicKeys || []).join("\n")).toString("base64")}'`,
       "bash /opt/tws-provision/bootstrap.sh",
       "# TWS-APPLY-END",

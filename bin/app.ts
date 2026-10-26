@@ -2,7 +2,6 @@ import {
   loadRdpCidr,
   loadSshPublicKeys,
   loadLocalEnvironment,
-  s3ParameterSettings,
 } from "../lib/access";
 import { App } from "aws-cdk-lib";
 import { readFileSync, existsSync } from "node:fs";
@@ -19,7 +18,6 @@ const config: Config = {
   ...base,
   ...local,
   rdpCidr: loadRdpCidr(),
-  ...s3ParameterSettings(loadLocalEnvironment()),
   sshPublicKeys: loadSshPublicKeys(loadLocalEnvironment()),
 };
 if (!config.availabilityZone.startsWith(config.region))

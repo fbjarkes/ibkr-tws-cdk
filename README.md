@@ -331,3 +331,15 @@ First-boot logs are also in `/var/log/cloud-init-output.log`. For older installa
 
 The EC2 logical ID is pinned to preserve its deployed identity. Older instances predating the boot updater need a one-time SSH installation of that service before migration. Do not rename foundation constructs or change the data disk's AZ casually.
 
+## References
+
+- [Detailed architecture](docs/architecture.md)
+- [EC2 user-data update behavior](https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-ec2-instance.html#cfn-ec2-instance-userdata)
+- [s3fs options](https://github.com/s3fs-fuse/s3fs-fuse/blob/master/doc/man/s3fs.1.in)
+- [Herdr installation](https://herdr.dev/docs/install/) and [remote access](https://herdr.dev/docs/persistence-remote/)
+
+- [Tailscale Linux installation](https://tailscale.com/docs/install/linux)
+
+## OS security alternative
+
+See [security setup and validation](docs/security.md) for this branch's local-only monitoring configuration.

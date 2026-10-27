@@ -1,0 +1,2 @@
+// Keep Ubuntu security updates enabled, but never reboot the trading desktop automatically.
+Unattended-Upgrade::Automatic-Reboot "false";

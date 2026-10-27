@@ -25,3 +25,38 @@ sudo python3 /usr/local/sbin/tws-security-monitor.py --event manual test 'Local 
 ```
 
 No live AWS deployment or workstation installation was performed when authoring these alternatives. For notification delivery later, add a separately scoped transport; no endpoint or credential is embedded here. Test installation and real authentication/integrity events on a disposable instance before using it on the trading desktop.
+
+## Alternative B: OSSEC local mode
+
+Branch: `codex/security-ossec`. OSSEC runs locally on the workstation: no manager VM, dashboard, agent enrollment port or remote syslog listener is added. Native SSH/PAM rules correlate authentication events; the shared collector separately handles SSH/xrdp login messages. Syscheck monitors selected OS/configuration files and trader's SSH/autostart directories. Rootcheck uses OSSEC's local checks. Active response, email, firewall blocking and file-content diffs are disabled.
+
+OSSEC 4.4.1 is built from its pinned GitHub source archive. The installer verifies SHA-256 **and** its detached GPG signature against the full signing fingerprint published by OSSEC, using an isolated temporary keyring. Release metadata lives in `provision/ossec-release.json`. Source builds add compiler/library packages and may take several minutes. Existing unmanaged/different-version installations are refused rather than deleted or silently upgraded; upgrades require explicit migration review.
+
+After deployment, first review the installation and activate it:
+
+```bash
+sudo /var/ossec/bin/ossec-analysisd -t
+sudo touch /etc/tws-security/ossec-approved
+sudo systemctl start ossec.service
+sudo /var/ossec/bin/ossec-control status
+sudo tail -n 30 /var/ossec/logs/alerts/alerts.json
+sudo tail -n 30 /var/log/tws-security/events.jsonl
+```
+
+The unit is enabled at boot but gated by that root-owned approval marker. Until activation, the common login collector runs and reports an activation-required event. Local OSSEC data lives under `/var/ossec` on the disposable root disk; recreation needs fresh review/activation. Do not switch alternatives over an existing installation: recreate only the desktop/root disk, retaining the data volume, and deploy the chosen branch.
+
+Syscheck scans at startup and hourly. After its initial scan, existing-file content changes can alert in near real time. New files and ownership/permission changes may wait until a scheduled scan. Unlike AIDE's frozen approved baseline, OSSEC maintains native evolving FIM state; it reports changes rather than waiting for an administrator to accept every new hash. `auto_ignore` is disabled so repeated changes are not silently accepted after a threshold. Ordinary updates can generate legitimate alerts; review them. This behavior is not immutable baseline protection.
+
+Configuration excludes caches, ordinary project files/environments and the S3 mount by monitoring selected paths only. No arbitrary command-execution monitoring or secret-bearing file diffs are enabled. Native OSSEC alert history follows upstream rotation; use log retention review for the 20 GiB root disk. The aggregate log uses the common logrotate policy.
+
+### Validate on a disposable desktop
+
+1. Run `python3 -B -m unittest discover -s test -p 'security_test.py'` for login fixtures, cursor/rotation behavior and XML configuration invariants.
+2. Deploy onto a fresh root disk, validate all daemon configurations, activate and wait for the initial syscheck scan to finish.
+3. Create/modify/delete a harmless `/etc/tws-integrity-test` file and check native/aggregate alerts. Allow a full hourly scan for new-file/metadata changes.
+4. Validate successful/failed SSH and RDP logins; confirm no firewall rule, account privilege or TWS process changes.
+5. Reboot and stop/start; confirm local OSSEC state persists and collection resumes. Confirm an actual SSH login works throughout validation.
+
+Source signature was verified during authoring; full OSSEC installation/service behavior still requires the disposable Ubuntu 24.04 validation above. No workstation changes were made.
+
+Sources: [OSSEC installation/signing fingerprint](https://www.ossec.net/docs/docs/manual/installation/install-source.html), [unattended installation](https://www.ossec.net/docs/docs/manual/installation/install-source-unattended.html), [syscheck behavior and limitations](https://www.ossec.net/docs/docs/manual/syscheck/index.html).

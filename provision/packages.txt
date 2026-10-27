@@ -25,3 +25,11 @@ rsyslog
 logrotate
 unattended-upgrades
 apparmor-utils
+gnupg
+pkg-config
+libpcre2-dev
+zlib1g-dev
+libssl-dev
+libevent-dev
+libsystemd-dev
+libmagic-dev

@@ -1,0 +1,13 @@
+[Unit]
+Description=OSSEC local host IDS (administrator activation required)
+After=network.target tws-config-update.service tws-custom-boot.service
+ConditionPathExists=/etc/tws-security/ossec-approved
+[Service]
+Type=forking
+ExecStart=/var/ossec/bin/ossec-control start
+ExecStop=/var/ossec/bin/ossec-control stop
+TimeoutStartSec=180
+TimeoutStopSec=120
+RemainAfterExit=yes
+[Install]
+WantedBy=multi-user.target

@@ -50,4 +50,26 @@ class SecurityTests(unittest.TestCase):
                 self.assertIn("--after-cursor=fixture-cursor", run.call_args.args[0])
             self.assertEqual(len(output.read_text().splitlines()), 1)
 
+class OssecConfigTests(unittest.TestCase):
+    def test_local_only_configuration_is_idempotent_and_preserves_rules(self):
+        import xml.etree.ElementTree as ET
+        config_path = Path(__file__).resolve().parents[1] / "provision/files/configure-ossec.py"
+        spec2 = importlib.util.spec_from_file_location("ossec_config", config_path)
+        config = importlib.util.module_from_spec(spec2)
+        spec2.loader.exec_module(config)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "ossec.conf"
+            path.write_text('<ossec_config><rules><include>sshd_rules.xml</include></rules><active-response><command>firewall-drop</command></active-response><remote/><localfile/></ossec_config>')
+            config.configure(path)
+            first = path.read_text()
+            config.configure(path)
+            self.assertEqual(first, path.read_text())
+            root = ET.parse(path).getroot()
+            self.assertEqual(root.findtext("active-response/disabled"), "yes")
+            self.assertEqual(root.findtext("global/email_notification"), "no")
+            self.assertIsNone(root.find("remote"))
+            self.assertEqual(root.findtext("rules/include"), "sshd_rules.xml")
+            self.assertEqual(root.findtext("syscheck/auto_ignore"), "no")
+            self.assertEqual(root.find("syscheck/directories").get("report_changes"), "no")
+
 if __name__ == "__main__": unittest.main()

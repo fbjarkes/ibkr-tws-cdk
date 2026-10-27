@@ -57,6 +57,6 @@ Configuration excludes caches, ordinary project files/environments and the S3 mo
 4. Validate successful/failed SSH and RDP logins; confirm no firewall rule, account privilege or TWS process changes.
 5. Reboot and stop/start; confirm local OSSEC state persists and collection resumes. Confirm an actual SSH login works throughout validation.
 
-Source signature was verified during authoring; full OSSEC installation/service behavior still requires the disposable Ubuntu 24.04 validation above. No workstation changes were made.
+Authoring validation: the source checksum/GPG signature, complete build/install in an isolated Ubuntu 24.04 filesystem, all three daemon configuration checks, and a native successful-SSH rule test passed. Python fixture and configuration-idempotence tests also passed. Full systemd startup/reboot, real xrdp log formats and live FIM behavior still require the disposable desktop checks above. No workstation/AWS changes were made.
 
 Sources: [OSSEC installation/signing fingerprint](https://www.ossec.net/docs/docs/manual/installation/install-source.html), [unattended installation](https://www.ossec.net/docs/docs/manual/installation/install-source-unattended.html), [syscheck behavior and limitations](https://www.ossec.net/docs/docs/manual/syscheck/index.html).

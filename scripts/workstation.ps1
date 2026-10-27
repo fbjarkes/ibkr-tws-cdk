@@ -3,6 +3,7 @@ param(
   [string]$Profile = 'poweruser',
   [string]$Region = '',
   [string]$IdentityFile = '',
+  # Accepted for compatibility; shutdown no longer requires apps to be closed.
   [switch]$ApplicationsClosed
 )
 $ErrorActionPreference = 'Stop'
@@ -42,14 +43,13 @@ switch ($Action) {
   }
   { $_ -in 'stop','down' } {
     $state = Invoke-Aws -CliArgs @('ec2','describe-instances','--instance-ids',$instance,'--query','Reservations[0].Instances[0].State.Name','--output','text')
+    if ($state -eq 'running') {
+      # Normal EC2 OS shutdown: application/SSH checks must not block stopping.
+      Invoke-Aws -CliArgs @('ec2','stop-instances','--instance-ids',$instance,'--no-force','--no-skip-os-shutdown') | Out-Null
+    } elseif ($state -notin @('stopped','stopping')) {
+      throw "Wait for a stable instance state; current state: $state"
+    }
     if ($state -ne 'stopped') {
-      if ($state -ne 'running') { throw "Wait for a stable instance state; current state: $state" }
-      if (-not $ApplicationsClosed) { throw 'Save work and close TWS/browser/LibreOffice, then pass -ApplicationsClosed. No forced application shutdown is performed.' }
-      $target = Get-SshTarget
-      # Use the SSH-authenticated administrator with passwordless sudo; no SSM required.
-      & ssh @sshOptions $target 'sudo -n /usr/local/sbin/tws-shutdown-checks'
-      if ($LASTEXITCODE -ne 0) { throw 'SSH shutdown checks failed; instance was not stopped. Check SSH keys/agent, host verification, source IP and trader sudo access.' }
-      Invoke-Aws -CliArgs @('ec2','stop-instances','--instance-ids',$instance) | Out-Null
       Invoke-Aws -CliArgs @('ec2','wait','instance-stopped','--instance-ids',$instance)
     }
     if ($Action -eq 'down') {

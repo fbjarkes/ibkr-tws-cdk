@@ -219,21 +219,21 @@ The S3 mount is off by default (`bucket` is blank). Set `bucket` in Git-ignored 
 
 Change `bucket`, `prefix`, `s3Region` and `s3ReadWrite` in configuration, or clear `bucket` to disable the mount. s3fs mounts the existing bucket/prefix at `/mnt/watchlists` through `tws-s3fs.service`, at boot. It uses trader's UID/GID (UID 1100), `allow_other`, `mp_umask=022` and `compat_dir`. `s3ReadWrite: true` grants `s3:*` on objects under the configured prefix and enables writes; false limits object access to reads. The prefix and required permissions must already exist; SSE-KMS buckets may need additional KMS permissions.
 
-Changing mount settings requires deployment. S3 is not POSIX storage: avoid concurrent edits and verify important saves. The shutdown helper refuses busy mounts rather than forcing an unmount.
+Changing mount settings requires deployment. S3 is not POSIX storage: avoid concurrent edits and verify important saves. Normal EC2 shutdown stops applications and filesystem services; save important work before stopping.
 
 ## Stop, start and rebuild
 
 ```powershell
 .\scripts\workstation.ps1 status
 .\scripts\workstation.ps1 start
-# Save work and close TWS, LibreOffice, browsers and Herdr:
-.\scripts\workstation.ps1 stop -ApplicationsClosed
+# Normal OS shutdown, even when applications are running:
+.\scripts\workstation.ps1 stop
 # Remove the desktop stack, retaining the foundation/data disk:
-.\scripts\workstation.ps1 down -ApplicationsClosed
+.\scripts\workstation.ps1 down
 npx cdk deploy TwsDesktop --profile poweruser --require-approval never
 ```
 
-SSH helpers use your agent/default identities or `-IdentityFile PATH`. Stop/down run passwordless sudo checks through SSH, sync and normally unmount S3. They abort on errors; application detection is not exhaustive. `down` prompts for confirmation. Stops end processes; they are not hibernation. No daily shutdown schedule is installed.
+The `session` helper uses your SSH agent/default identities or `-IdentityFile PATH`. Stop/down use the AWS API with profile `poweruser`, without SSH or application-running checks. They request normal OS shutdown (`--no-force --no-skip-os-shutdown`) and wait for EC2 to stop. Applications may still be open; unsaved work can be lost. `-ApplicationsClosed` remains accepted for compatibility but is no longer required. `down` then removes the desktop stack with a confirmation prompt. Stops are not hibernation; no daily shutdown schedule is installed.
 
 EBS, snapshots and CDK assets incur storage costs while compute is stopped. Public IPv4 is billed while allocated. The foundation is protected and retains its disk; destroying stacks does not automatically clean up all retained resources or existing S3 buckets.
 

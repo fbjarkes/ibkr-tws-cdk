@@ -257,3 +257,7 @@ The EC2 logical ID is pinned to preserve its deployed identity. Older instances 
 - [Herdr installation](https://herdr.dev/docs/install/) and [remote access](https://herdr.dev/docs/persistence-remote/)
 
 - [Tailscale Linux installation](https://tailscale.com/docs/install/linux)
+
+## OS security alternative
+
+See [security setup and validation](docs/security.md) for this branch’s local-only monitoring configuration.

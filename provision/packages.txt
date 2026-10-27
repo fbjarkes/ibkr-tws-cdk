@@ -21,3 +21,7 @@ openssh-server
 sudo
 neovim
 tailscale
+rsyslog
+logrotate
+unattended-upgrades
+apparmor-utils

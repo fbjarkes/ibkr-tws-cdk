@@ -1,0 +1,10 @@
+/var/log/tws-security/*.jsonl /var/log/tws-security/*.log {
+  daily
+  rotate 14
+  maxsize 5M
+  compress
+  delaycompress
+  missingok
+  notifempty
+  create 0600 root root
+}

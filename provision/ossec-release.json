@@ -1,0 +1,8 @@
+{
+  "version": "4.4.1",
+  "url": "https://github.com/ossec/ossec-hids/archive/refs/tags/4.4.1.tar.gz",
+  "sha256": "1428d38fd1bff0f7fa40ca4358ef56173342a73f054c3d9342fc039ee63997d1",
+  "signatureUrl": "https://github.com/ossec/ossec-hids/releases/download/4.4.1/ossec-hids-4.4.1.tar.gz.asc",
+  "signingKeyUrl": "https://www.ossec.net/files/OSSEC-ARCHIVE-KEY.asc",
+  "signingFingerprint": "B50FB1947A0AE31145D05FADEE1B0E6B2D8387B7"
+}

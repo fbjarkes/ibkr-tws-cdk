@@ -14,7 +14,8 @@ install -d -o root -g root -m 0755 /etc/tws-security
 chmod 0644 /etc/systemd/system/ossec.service
 systemctl daemon-reload
 systemctl enable ossec.service
-systemctl enable --now systemd-tmpfiles-clean.timer
+systemctl add-wants timers.target systemd-tmpfiles-clean.timer
+systemctl start systemd-tmpfiles-clean.timer
 # The first baseline requires administrator review, never auto-enroll it.
 if [ -e /etc/tws-security/ossec-approved ]; then
   systemctl --no-block restart ossec.service

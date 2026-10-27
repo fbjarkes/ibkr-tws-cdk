@@ -47,7 +47,7 @@ The unit is enabled at boot but gated by that root-owned approval marker. Until 
 
 Syscheck scans at startup and hourly. After its initial scan, existing-file content changes can alert in near real time. New files and ownership/permission changes may wait until a scheduled scan. Unlike AIDE's frozen approved baseline, OSSEC maintains native evolving FIM state; it reports changes rather than waiting for an administrator to accept every new hash. `auto_ignore` is disabled so repeated changes are not silently accepted after a threshold. Ordinary updates can generate legitimate alerts; review them. This behavior is not immutable baseline protection.
 
-Configuration excludes caches, ordinary project files/environments and the S3 mount by monitoring selected paths only. No arbitrary command-execution monitoring or secret-bearing file diffs are enabled. Native OSSEC alert history follows upstream rotation; use log retention review for the 20 GiB root disk. The aggregate log uses the common logrotate policy.
+Configuration excludes caches, ordinary project files/environments and the S3 mount by monitoring selected paths only. No arbitrary command-execution monitoring or secret-bearing file diffs are enabled. OSSEC rotates/compresses native alert history. A tmpfiles policy ages dated alert archives out after 30 days without touching current top-level log links; the standard cleanup timer is enabled. The aggregate log uses the common logrotate policy. Monitor disk usage on the 20 GiB root disk; time-based retention is not a hard byte cap.
 
 ### Validate on a disposable desktop
 

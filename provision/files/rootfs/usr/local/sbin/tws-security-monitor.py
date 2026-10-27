@@ -36,14 +36,20 @@ def tail_json(path, previous):
         return [], previous
     current = path.stat()
     files = []
+    gap = False
     old_inode = previous.get("inode")
     if old_inode and old_inode != current.st_ino:
-        for candidate in path.parent.glob(path.name + "*"):
+        # OSSEC rotates into year/month subdirectories; also support .1 rotation.
+        candidates = list(path.parent.glob(path.name + "*")) + list(path.parent.glob("*/*/*.json"))
+        for candidate in candidates:
             if candidate.is_file() and not candidate.name.endswith(".gz") and candidate.stat().st_ino == old_inode:
                 files.append((candidate, previous.get("offset", 0)))
                 break
+        else:
+            gap = True
     offset = previous.get("offset", 0) if old_inode == current.st_ino else 0
     if offset > current.st_size:
+        gap = True
         offset = 0
     files.append((path, offset))
     events = []
@@ -63,7 +69,7 @@ def tail_json(path, previous):
                     pass
             if filename == path:
                 position = stream.tell()
-    return events, {"inode": current.st_ino, "offset": position}
+    return events, {"inode": current.st_ino, "offset": position, "gap": gap}
 
 
 def collect(state_dir, output):
@@ -90,6 +96,8 @@ def collect(state_dir, output):
         if record.get("__CURSOR"):
             state["cursor"] = record["__CURSOR"]
     events, state["ossec"] = tail_json("/var/ossec/logs/alerts/alerts.json", state.get("ossec", {}))
+    if state["ossec"].get("gap"):
+        emit(output, "collector", "ossec_log_gap", "Previous alert file was truncated or no longer retained; resuming available records")
     for event in events:
         rule = event.get("rule", {})
         # Never copy full_log or file-content diffs into the aggregate report.

@@ -32,6 +32,23 @@ class SecurityTests(unittest.TestCase):
             self.assertEqual([r["rule"]["id"] for r in records], [2, 3])
             self.assertEqual(monitor.tail_json(path, state)[0], [])
 
+    def test_nested_ossec_rotation_and_missing_history(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "alerts.json"
+            path.write_text('{"rule":{"id":1}}\n')
+            _, state = monitor.tail_json(path, {})
+            with path.open("a") as stream: stream.write('{"rule":{"id":2}}\n')
+            archived = Path(directory) / "2026" / "Oct" / "ossec-alerts-27.json"
+            archived.parent.mkdir(parents=True)
+            path.rename(archived)
+            path.write_text('{"rule":{"id":3}}\n')
+            records, new_state = monitor.tail_json(path, state)
+            self.assertEqual([r["rule"]["id"] for r in records], [2, 3])
+            self.assertFalse(new_state["gap"])
+            archived.unlink()
+            _, new_state = monitor.tail_json(path, state)
+            self.assertTrue(new_state["gap"])
+
     def test_journal_checkpoint_prevents_duplicate_auth_alerts(self):
         with tempfile.TemporaryDirectory() as directory:
             state = Path(directory) / "state"

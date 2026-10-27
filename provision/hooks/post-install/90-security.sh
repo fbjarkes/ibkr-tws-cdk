@@ -11,6 +11,7 @@ python3 /opt/tws-provision/files/configure-ossec.py /var/ossec/etc/ossec.conf
 /var/ossec/bin/ossec-logcollector -t
 /var/ossec/bin/ossec-syscheckd -t
 install -d -o root -g root -m 0755 /etc/tws-security
+chmod 0644 /etc/systemd/system/ossec.service
 systemctl daemon-reload
 systemctl enable ossec.service
 # The first baseline requires administrator review, never auto-enroll it.

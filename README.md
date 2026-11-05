@@ -113,6 +113,14 @@ SSH uses public keys only; direct root SSH is disabled. No account password or A
 
 On Win11, open `mstsc`, connect to the current EC2 public IP, and log in as `trader` using the RDP password. Choose Xorg if prompted. xrdp starts at boot; the XFCE session starts on login. Validate the self-signed certificate. Disconnecting preserves the session; logging out ends it.
 
+Windows PowerShell one-liner using the current session's environment variable (replace the example IP):
+
+```powershell
+$env:RDP_IP='203.0.113.10'; mstsc.exe "/v:$env:RDP_IP" /prompt
+```
+
+Enter `trader` and the RDP password in the login dialog; leave **Remember me** unchecked. `mstsc` cannot read a username/password from environment variables or accept a password argument.
+
 On Debian/Linux, use FreeRDP 3 (`sudo apt install freerdp3-x11`). This one-liner looks up the current public IP from the stack:
 
 ```bash

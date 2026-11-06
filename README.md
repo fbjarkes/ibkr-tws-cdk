@@ -132,7 +132,27 @@ A **reboot keeps the public IP**; stop/start or recreation can change it. Rebuil
 
 Install TWS manually as `trader` under `/home/trader` (for example `~/Jts`). Enable socket API clients in TWS and prefer localhost-only access. IBKR login/MFA remains interactive. TWS is not installed or started automatically.
 
-Herdr is installed at `~/.local/bin/herdr`, pinned by version and checksum in `provision/herdr-release.json`. Run it directly, or configure an SSH alias and use `herdr --remote YOUR_ALIAS` from a client with Herdr installed. Agent credentials and automatic Herdr startup are not configured.
+## Herdr
+
+Herdr is installed at `~/.local/bin/herdr`, pinned by version and checksum in `provision/herdr-release.json`. Run it directly on the workstation, or connect from a client with Herdr installed. Agent credentials and automatic Herdr startup are not configured.
+
+To connect from a client, first add an SSH host alias to `~/.ssh/config`:
+
+```sshconfig
+Host tws-workstation
+  HostName ibkr-tws          # Tailscale MagicDNS name, Tailscale IP or EC2 public IP
+  User trader
+  IdentityFile ~/.ssh/id_ed25519
+  IdentitiesOnly yes
+```
+
+Check it with `ssh tws-workstation`, then register the workstation in Herdr:
+
+```bash
+herdr machine add tws-workstation --label <label>
+```
+
+You can also connect without registering it: `herdr --remote tws-workstation`.
 
 ## Python and uv
 

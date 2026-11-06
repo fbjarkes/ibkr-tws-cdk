@@ -1,0 +1,8 @@
+[Unit]
+Description=Check workstation security events every minute
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=1min
+Unit=tws-security-monitor.service
+[Install]
+WantedBy=timers.target

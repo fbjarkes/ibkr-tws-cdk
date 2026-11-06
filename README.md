@@ -171,6 +171,13 @@ sudo -i
 
 On Windows: `mstsc /v:TAILSCALE_IP`. On Linux: `xfreerdp3 /v:ibkr-tws /u:trader /bpp:24 +clipboard /dynamic-resolution` (MagicDNS name, or the Tailscale IP). Use the trader RDP password as usual.
 
+> [!NOTE]
+> **Connect from Linux**
+>
+> 1. Run `xfreerdp3 /v:ibkr-tws /u:trader /dynamic-resolution +clipboard /bpp:24`
+> 2. Leave the domain empty when prompted.
+> 3. Enter or paste the password (`TRADER_PASS` from `.env`).
+
 To skip the password prompt:
 
 ```bash

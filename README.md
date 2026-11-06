@@ -94,43 +94,70 @@ npx cdk deploy --all --profile poweruser --require-approval never
 
 `--require-approval never` skips CDK security-change prompts. Review the diff first. Deployment waits up to 40 minutes for first-boot provisioning. Builds, tests and synthesis alone do not deploy resources. The toolkit bucket stores provisioning assets; changing its name/qualifier requires a migration.
 
+
 ## Connect: SSH, sudo and RDP
+
+### Powershell
+
+#### Start/Stop and lifecycle management
+- Stop/down use the AWS API with profile `poweruser`, without SSH or application-running checks
+- They request normal OS shutdown (`--no-force --no-skip-os-shutdown`) and wait for EC2 to stop. 
+- Applications may still be open; unsaved work can be lost. `-ApplicationsClosed` remains accepted for compatibility but is no longer required. `down` then removes the desktop stack with a confirmation prompt. 
+- Stops are not hibernation; no daily shutdown schedule is installed.
+
 
 ```powershell
 .\scripts\workstation.ps1 status
-.\scripts\workstation.ps1 session -IdentityFile ~/.ssh/id_ed25519
+```
+TODO: Start, Stop etc.
+```powershell
+.\scripts\workstation.ps1 status
+.\scripts\workstation.ps1 start
+# Normal OS shutdown, even when applications are running:
+.\scripts\workstation.ps1 stop
+# Remove the desktop stack, retaining the foundation/data disk:
+.\scripts\workstation.ps1 down
+npx cdk deploy TwsDesktop --profile poweruser --require-approval never
 ```
 
-Or connect directly from Windows, Debian or macOS:
 
+
+#### Linux
+TODO...
+
+### Remote desktop
+
+#### Windows
+
+  ```powershell
+  cmdkey /generic:TERMSRV/ibkr-tws /user:trader /pass:"<PASS>"; mstsc /v:ibkr-tws
+  ```
+  This stores the password in Windows Credential Manager. To remove it: `cmdkey /delete:TERMSRV/ibkr-tws`.
+
+#### Linux
 ```bash
-ssh -i ~/.ssh/id_ed25519 trader@EC2_PUBLIC_IP
-sudo -i                       # Passwordless root shell; exit returns to trader
-sudo passwd trader            # Set an account password only for RDP
+TRADER_PASS=<PASS>  # TRADER_PASS from .env
+xfreerdp3 /v:ibkr-tws /u:trader /p:"$TRADER_PASS" /bpp:24 +clipboard /dynamic-resolution
 ```
+Leave the domain empty, and enter the RDP password from .env if not provided with command
 
-SSH uses public keys only; direct root SSH is disabled. No account password or AWS credentials are needed for direct SSH. SSM remains an optional fallback, not part of routine administration.
-
-On Win11, open `mstsc`, connect to the current EC2 public IP, and log in as `trader` using the RDP password. Choose Xorg if prompted. xrdp starts at boot; the XFCE session starts on login. Validate the self-signed certificate. Disconnecting preserves the session; logging out ends it.
-
-On Debian/Linux, use FreeRDP 3 (`sudo apt install freerdp3-x11`). This one-liner looks up the current public IP from the stack:
-
-```bash
-xfreerdp3 /v:$(aws ec2 describe-instances --region eu-north-1 --profile poweruser --instance-ids $(aws cloudformation describe-stacks --stack-name TwsDesktop --region eu-north-1 --profile poweruser --query "Stacks[0].Outputs[?OutputKey=='InstanceId'].OutputValue" --output text) --query 'Reservations[0].Instances[0].PublicIpAddress' --output text) /u:trader /bpp:24 +clipboard /dynamic-resolution
-```
+#### RDP client configuration
+xrdp starts at boot; XFCE starts on desktop login. Without Tailscale, use the current EC2 public IP instead of `ibkr-tws` (in both places in the Windows command); your client IP must match the security group's `IP_ADDRESS/32` rule.
 
 **Keep `/bpp:24`.** At the default 32-bit colour, Ubuntu's xrdp 0.9 sends planar-compressed bitmaps that FreeRDP 3 rejects: the session drops right after login with `planar_decompress failed`. If 24-bit still fails, try `/bpp:16` or `-compression`. The certificate, `BB_ERROR_BLOB`, `messageChannelId` and keycode warnings are harmless.
 
-### RDP responsiveness
+##### RDP responsiveness
 
 - **Network path:** over Tailscale, run `tailscale ping ibkr-tws`. `via DERP(...)` means relayed traffic with extra latency; the public-IP route may then be faster.
 - **Client:** a fixed size sends fewer pixels than `/dynamic-resolution`. Turn off sound and visual extras: `xfreerdp3 /v:ibkr-tws /u:trader /bpp:24 +clipboard /size:1920x1080 /network:broadband-high /audio-mode:2 -wallpaper -themes`. `/bpp:16` halves bandwidth, with some colour banding.
 - **Provisioned server tuning:** XFCE window compositing is turned off at each login (`/etc/xdg/autostart/tws-xfwm4-no-compositing.desktop`), xrdp uses a 4 MiB TCP send buffer, and `/etc/sysctl.d/90-xrdp.conf` raises `net.core.wmem_max` to allow it. To keep compositing, remove that autostart file from `provision/files/rootfs/etc/xdg/autostart/` and from the instance (overlay removals are not applied automatically).
 - **In the session:** turn off the XFCE screensaver/locker, use a flat theme without animations, and turn off Firefox smooth scrolling.
 
-A **reboot keeps the public IP**; stop/start or recreation can change it. Rebuilt instances have new host keys: verify the new fingerprint before updating `known_hosts`.
 
+## IBKR TWS
 Install TWS manually as `trader` under `/home/trader` (for example `~/Jts`). Enable socket API clients in TWS and prefer localhost-only access. IBKR login/MFA remains interactive. TWS is not installed or started automatically.
+TODO: ... optimizations
+
 
 ## Herdr
 
@@ -169,45 +196,10 @@ uv run python --version
 
 `uv sync` uses the project's Python requirement and lockfile, creating `.venv` as needed. Use virtual environments for dependencies rather than installing into the Ubuntu-managed Python. Project-specific Python versions can be managed with uv; system Python remains Ubuntu's default.
 
-## Join Tailscale later
-
+## Tailscale
 Tailscale installs from its official stable apt repository on new instances and provisioning updates. `tailscaled` starts at boot; enrollment is manual and no auth key is stored in Git/CDK. For an existing instance, deploy the provisioning update, or run the standalone installer over SSH without restarting the workstation.
 
-On EC2, after installation:
-
-```bash
-sudo tailscale up --hostname=ibkr-tws --ssh=false
-# Open the displayed login URL in your browser and approve the device.
-tailscale ip -4
-tailscale status
-```
-
-Install Tailscale on your Windows, Debian or macOS client and sign into the same tailnet. Allow TCP 22 and 3389 in your tailnet access policy. Connect using the reported Tailscale IP or MagicDNS hostname:
-
-```bash
-ssh -i ~/.ssh/id_ed25519 trader@TAILSCALE_IP
-sudo -i
-```
-
-On Windows: `mstsc /v:TAILSCALE_IP`. On Linux: `xfreerdp3 /v:ibkr-tws /u:trader /bpp:24 +clipboard /dynamic-resolution` (MagicDNS name, or the Tailscale IP). Use the trader RDP password as usual.
-
-> [!NOTE]
-> **Connect from Linux**
->
-> 1. Run `xfreerdp3 /v:ibkr-tws /u:trader /dynamic-resolution +clipboard /bpp:24`
-> 2. Leave the domain empty when prompted.
-> 3. Enter or paste the password (`TRADER_PASS` from `.env`).
-
-To skip the password prompt:
-
-```bash
-TRADER_PASS=<PASS>  # TRADER_PASS from .env
-xfreerdp3 /v:ibkr-tws /u:trader /p:"$TRADER_PASS" /bpp:24 +clipboard /dynamic-resolution
-```
-
-Other local users can see `/p:` in the process list while FreeRDP runs, so only use this on a single-user client. `--ssh=false` preserves ordinary OpenSSH with your defined key and passwordless sudo; Tailscale SSH is not enabled. No extra public security-group ports are opened. Public `IP_ADDRESS` filtering remains as a fallback; tailnet connections use Tailscale access controls instead.
-
-Enrollment survives reboot and stop/start. State is stored on the root disk (`/var/lib/tailscale`), so a rebuilt instance must be enrolled again; remove stale devices from the Tailscale admin console. Device approval/key expiry follow your tailnet policy. Existing enrolled machines retain their identity and preferences when provisioning runs again.
+TODO: any additional tailscale config, e.g. first setup with new instance?
 
 ## Update IP, packages and services
 
@@ -248,22 +240,6 @@ Change `bucket`, `prefix`, `s3Region` and `s3ReadWrite` in configuration, or cle
 
 Changing mount settings requires deployment. S3 is not POSIX storage: avoid concurrent edits and verify important saves. Normal EC2 shutdown stops applications and filesystem services; save important work before stopping.
 
-## Stop, start and rebuild
-
-```powershell
-.\scripts\workstation.ps1 status
-.\scripts\workstation.ps1 start
-# Normal OS shutdown, even when applications are running:
-.\scripts\workstation.ps1 stop
-# Remove the desktop stack, retaining the foundation/data disk:
-.\scripts\workstation.ps1 down
-npx cdk deploy TwsDesktop --profile poweruser --require-approval never
-```
-
-The `session` helper uses your SSH agent/default identities or `-IdentityFile PATH`. Stop/down use the AWS API with profile `poweruser`, without SSH or application-running checks. They request normal OS shutdown (`--no-force --no-skip-os-shutdown`) and wait for EC2 to stop. Applications may still be open; unsaved work can be lost. `-ApplicationsClosed` remains accepted for compatibility but is no longer required. `down` then removes the desktop stack with a confirmation prompt. Stops are not hibernation; no daily shutdown schedule is installed.
-
-EBS, snapshots and CDK assets incur storage costs while compute is stopped. Public IPv4 is billed while allocated. The foundation is protected and retains its disk; destroying stacks does not automatically clean up all retained resources or existing S3 buckets.
-
 ## Troubleshooting
 
 ```bash
@@ -276,11 +252,3 @@ First-boot logs are also in `/var/log/cloud-init-output.log`. For older installa
 
 The EC2 logical ID is pinned to preserve its deployed identity. Older instances predating the boot updater need a one-time SSH installation of that service before migration. Do not rename foundation constructs or change the data disk's AZ casually.
 
-## References
-
-- [Detailed architecture](docs/architecture.md)
-- [EC2 user-data update behavior](https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-ec2-instance.html#cfn-ec2-instance-userdata)
-- [s3fs options](https://github.com/s3fs-fuse/s3fs-fuse/blob/master/doc/man/s3fs.1.in)
-- [Herdr installation](https://herdr.dev/docs/install/) and [remote access](https://herdr.dev/docs/persistence-remote/)
-
-- [Tailscale Linux installation](https://tailscale.com/docs/install/linux)

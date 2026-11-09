@@ -193,16 +193,28 @@ xfreerdp3 /v:ibkr-tws /u:trader /p:"$TRADER_PASS" /bpp:24 +clipboard /dynamic-re
 
 - **Network path:** over Tailscale, run `tailscale ping ibkr-tws`. `via DERP(...)` means relayed traffic with extra latency; the public-IP route may then be faster.
 - **Client:** a fixed size sends fewer pixels than `/dynamic-resolution`. Turn off sound and visual extras: `xfreerdp3 /v:ibkr-tws /u:trader /bpp:24 +clipboard /size:1920x1080 /network:broadband-high /audio-mode:2 -wallpaper -themes`. `/bpp:16` halves bandwidth, with some colour banding.
-- **Provisioned server tuning:** XFCE window compositing is turned off at each login (`/etc/xdg/autostart/tws-xfwm4-no-compositing.desktop`), xrdp uses a 4 MiB TCP send buffer, and `/etc/sysctl.d/90-xrdp.conf` raises `net.core.wmem_max` to allow it. To keep compositing, remove that autostart file from `provision/files/rootfs/etc/xdg/autostart/` and from the instance (overlay removals are not applied automatically).
+- **Provisioned server tuning:** XFCE window compositing is turned off at each login (`/etc/xdg/autostart/tws-xfwm4-no-compositing.desktop`), xrdp uses an 8 MiB TCP send buffer, and `/etc/sysctl.d/90-xrdp.conf` raises `net.core.wmem_max` to 8 MiB to allow it. To keep compositing, remove that autostart file from `provision/files/rootfs/etc/xdg/autostart/` and from the instance (overlay removals are not applied automatically).
 - **In the session:** turn off the XFCE screensaver/locker, use a flat theme without animations, and turn off Firefox smooth scrolling.
 
 ## IBKR TWS
 
+### Installation and Setup
+
 - Install TWS manually as `trader` under `~/Jts`; automatic installation/startup is not configured.
 - Enable socket API clients and restrict access to localhost.
 - Complete IBKR login/MFA interactively.
-- Close unused charts and windows to reduce desktop workload.
-- Adjust memory under Global Configuration → General only when needed, leaving RAM for other applications ([IBKR guidance](https://www.interactivebrokers.com/docs/third-party-integrations/tws-settings/memory-allocation)).
+
+### Performance Tuning
+
+- **Reduce desktop workload:** close unused charts, windows, and layouts to minimize memory and CPU usage.
+- **Java heap size:** TWS performance improves significantly with appropriate JVM heap allocation. Set via Global Configuration → General. For typical API usage:
+  - Recommended: `-Xms512m -Xmx2048m` (512 MB initial, 2 GB max)
+  - Light usage: `-Xms256m -Xmx1024m` (256 MB initial, 1 GB max)
+  - Heavy data/chart usage: `-Xms1024m -Xmx4096m` (1 GB initial, 4 GB max)
+- **Garbage collection tuning:** for low-latency API work, consider `-XX:+UseG1GC -XX:MaxGCPauseMillis=50` to reduce GC pause times.
+- **Other JVM flags:** `-XX:-TieredCompilation` disables tiered compilation (faster startup, lower overhead); `-XX:+AlwaysPreTouch` pre-allocates heap memory (more predictable latency).
+- **Memory allocation:** leave sufficient RAM for the OS and other applications. Monitor with `free -h` or system tools. See [IBKR memory guidance](https://www.interactivebrokers.com/docs/third-party-integrations/tws-settings/memory-allocation).
+- **Network optimization:** if using RDP, higher latency can degrade responsiveness; consider `net.core.wmem_max` tuning (already set to 4 MiB in this provisioning).
 
 ## Herdr
 

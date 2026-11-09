@@ -94,55 +94,98 @@ npx cdk deploy --all --profile poweruser --require-approval never
 
 `--require-approval never` skips CDK security-change prompts. Review the diff first. Deployment waits up to 40 minutes for first-boot provisioning. Builds, tests and synthesis alone do not deploy resources. The toolkit bucket stores provisioning assets; changing its name/qualifier requires a migration.
 
-
 ## Connect: SSH, sudo and RDP
 
-### Powershell
+### Lifecycle: PowerShell
 
-#### Start/Stop and lifecycle management
-- Stop/down use the AWS API with profile `poweruser`, without SSH or application-running checks
-- They request normal OS shutdown (`--no-force --no-skip-os-shutdown`) and wait for EC2 to stop. 
-- Applications may still be open; unsaved work can be lost. `-ApplicationsClosed` remains accepted for compatibility but is no longer required. `down` then removes the desktop stack with a confirmation prompt. 
-- Stops are not hibernation; no daily shutdown schedule is installed.
+- Run these commands from the repository with AWS profile `poweruser` authenticated.
 
-
-```powershell
-.\scripts\workstation.ps1 status
-```
-TODO: Start, Stop etc.
 ```powershell
 .\scripts\workstation.ps1 status
 .\scripts\workstation.ps1 start
-# Normal OS shutdown, even when applications are running:
 .\scripts\workstation.ps1 stop
-# Remove the desktop stack, retaining the foundation/data disk:
+.\scripts\workstation.ps1 session -IdentityFile ~/.ssh/id_ed25519
 .\scripts\workstation.ps1 down
 npx cdk deploy TwsDesktop --profile poweruser --require-approval never
 ```
 
+- `start` waits for EC2 health checks; desktop services may need longer.
+- `stop` requests normal OS shutdown and waits, even with applications running.
+- `down` stops EC2, then confirms desktop-stack deletion while retaining the foundation/data disk.
+- Redeploy `TwsDesktop` to rebuild the desktop from the retained data disk.
+- Save work first; unsaved changes can be lost during shutdown.
+- Stopping is not hibernation, and no daily shutdown schedule is configured.
+- EBS, snapshots and CDK assets still incur storage charges while stopped.
 
+### Lifecycle: Linux
 
-#### Linux
-TODO...
+- Use the same helper through PowerShell 7: `pwsh ./scripts/workstation.ps1 status`.
+- Alternatively, use AWS CLI directly:
+
+```bash
+export AWS_PROFILE=poweruser AWS_DEFAULT_REGION=eu-north-1
+INSTANCE_ID=$(aws cloudformation describe-stacks --stack-name TwsDesktop --query "Stacks[0].Outputs[?OutputKey=='InstanceId'].OutputValue | [0]" --output text)
+aws ec2 describe-instances --instance-ids "$INSTANCE_ID" --query 'Reservations[0].Instances[0].{State:State.Name,IP:PublicIpAddress}' --output table
+aws ec2 start-instances --instance-ids "$INSTANCE_ID"
+aws ec2 wait instance-status-ok --instance-ids "$INSTANCE_ID"
+```
+
+- To stop and wait for normal OS shutdown:
+
+```bash
+aws ec2 stop-instances --instance-ids "$INSTANCE_ID" --no-force --no-skip-os-shutdown
+aws ec2 wait instance-stopped --instance-ids "$INSTANCE_ID"
+```
+
+### SSH and sudo: all clients
+
+- Connect through Tailscale with the private key matching `SSH_PUBLIC_KEYS_FILE`.
+
+```bash
+ssh -i ~/.ssh/id_ed25519 trader@ibkr-tws
+sudo -i
+```
+
+- `sudo` is passwordless; direct root SSH and SSH password authentication are disabled.
+- Use the current public IP instead of `ibkr-tws` when connecting without Tailscale.
+- Reboot preserves the public IP; stop/start or recreation can change it.
+- Verify new SSH host keys after rebuilding before updating `known_hosts`.
 
 ### Remote desktop
 
+- Start the workstation and connect your client to the same Tailscale network.
+- Enroll new instances using the [Tailscale setup](#tailscale) below.
+- Once per new root disk, SSH in and run `sudo passwd trader` to set the RDP password.
+- Replace `<PASS>` below with that password; setting a local `.env` value does not change it on EC2.
+- Validate the server certificate and select **Xorg** if prompted.
+
 #### Windows
 
-  ```powershell
-  cmdkey /generic:TERMSRV/ibkr-tws /user:trader /pass:"<PASS>"; mstsc /v:ibkr-tws
-  ```
-  This stores the password in Windows Credential Manager. To remove it: `cmdkey /delete:TERMSRV/ibkr-tws`.
+```powershell
+cmdkey /generic:TERMSRV/ibkr-tws /user:trader /pass:"<PASS>"; mstsc /v:ibkr-tws
+```
+
+- The command saves the password in Windows Credential Manager.
+- Remove it with `cmdkey /delete:TERMSRV/ibkr-tws`.
 
 #### Linux
 ```bash
-TRADER_PASS=<PASS>  # TRADER_PASS from .env
+TRADER_PASS='<PASS>'
 xfreerdp3 /v:ibkr-tws /u:trader /p:"$TRADER_PASS" /bpp:24 +clipboard /dynamic-resolution
 ```
-Leave the domain empty, and enter the RDP password from .env if not provided with command
+- Install FreeRDP 3 with `sudo apt install freerdp3-x11` where available.
+- Leave the domain empty; omit `/p:` to enter the password interactively.
+- `/p:` exposes the password in the client process arguments.
+
+#### macOS
+
+- Add a PC named `ibkr-tws` in Windows App and connect as `trader` with the RDP password.
 
 #### RDP client configuration
-xrdp starts at boot; XFCE starts on desktop login. Without Tailscale, use the current EC2 public IP instead of `ibkr-tws` (in both places in the Windows command); your client IP must match the security group's `IP_ADDRESS/32` rule.
+- xrdp starts at boot; XFCE starts on desktop login.
+- Without Tailscale, replace `ibkr-tws` with the current public IP; your client must match `IP_ADDRESS/32`.
+- Close the client to preserve running applications; logging out ends the desktop.
+- Reconnecting to an existing desktop depends on xrdp's session-matching policy.
 
 **Keep `/bpp:24`.** At the default 32-bit colour, Ubuntu's xrdp 0.9 sends planar-compressed bitmaps that FreeRDP 3 rejects: the session drops right after login with `planar_decompress failed`. If 24-bit still fails, try `/bpp:16` or `-compression`. The certificate, `BB_ERROR_BLOB`, `messageChannelId` and keycode warnings are harmless.
 
@@ -153,11 +196,13 @@ xrdp starts at boot; XFCE starts on desktop login. Without Tailscale, use the cu
 - **Provisioned server tuning:** XFCE window compositing is turned off at each login (`/etc/xdg/autostart/tws-xfwm4-no-compositing.desktop`), xrdp uses a 4 MiB TCP send buffer, and `/etc/sysctl.d/90-xrdp.conf` raises `net.core.wmem_max` to allow it. To keep compositing, remove that autostart file from `provision/files/rootfs/etc/xdg/autostart/` and from the instance (overlay removals are not applied automatically).
 - **In the session:** turn off the XFCE screensaver/locker, use a flat theme without animations, and turn off Firefox smooth scrolling.
 
-
 ## IBKR TWS
-Install TWS manually as `trader` under `/home/trader` (for example `~/Jts`). Enable socket API clients in TWS and prefer localhost-only access. IBKR login/MFA remains interactive. TWS is not installed or started automatically.
-TODO: ... optimizations
 
+- Install TWS manually as `trader` under `~/Jts`; automatic installation/startup is not configured.
+- Enable socket API clients and restrict access to localhost.
+- Complete IBKR login/MFA interactively.
+- Close unused charts and windows to reduce desktop workload.
+- Adjust memory under Global Configuration → General only when needed, leaving RAM for other applications ([IBKR guidance](https://www.interactivebrokers.com/docs/third-party-integrations/tws-settings/memory-allocation)).
 
 ## Herdr
 
@@ -197,9 +242,23 @@ uv run python --version
 `uv sync` uses the project's Python requirement and lockfile, creating `.venv` as needed. Use virtual environments for dependencies rather than installing into the Ubuntu-managed Python. Project-specific Python versions can be managed with uv; system Python remains Ubuntu's default.
 
 ## Tailscale
-Tailscale installs from its official stable apt repository on new instances and provisioning updates. `tailscaled` starts at boot; enrollment is manual and no auth key is stored in Git/CDK. For an existing instance, deploy the provisioning update, or run the standalone installer over SSH without restarting the workstation.
 
-TODO: any additional tailscale config, e.g. first setup with new instance?
+- Provisioning installs Tailscale and starts `tailscaled`; enrollment is manual.
+- On each new instance, connect over public SSH and run:
+
+```bash
+sudo tailscale up --hostname=ibkr-tws --ssh=false
+tailscale ip -4
+tailscale status
+```
+
+- Open the displayed login URL and approve the device if required.
+- Sign your clients into the same tailnet and enable MagicDNS for `ibkr-tws`.
+- Allow TCP 22 and 3389 in the tailnet access policy.
+- `--ssh=false` preserves ordinary OpenSSH key authentication and passwordless sudo.
+- Enrollment survives stop/start but must be repeated after root-disk recreation.
+- Remove stale devices after rebuilding and check device key expiry in the admin console.
+- See the [Tailscale CLI reference](https://tailscale.com/docs/reference/tailscale-cli/up) for enrollment options.
 
 ## Update IP, packages and services
 
@@ -233,12 +292,21 @@ Save work before provisioning updates. CDK can report **conditional replacement*
 Hooks run alphabetically and must be idempotent. Use `runuser -u trader -- ...` for user commands. Add custom systemd unit files through the overlay and enable them in a post-install hook. Removed overlay files are not automatically deleted. Keep secrets out of provisioning assets and Git.
 
 ## S3 mount
+- With S3 already configured, mount and verify the bucket using the existing service:
 
-The S3 mount is off by default (`bucket` is blank). Set `bucket` in Git-ignored `config/local.json`, e.g. `{ "bucket": "YOUR_BUCKET" }`, to mount `s3://YOUR_BUCKET/watchlists/` at `/mnt/watchlists` using temporary EC2 role credentials, with full object access confined to that prefix. Bucket location and prefix-limited listing are also allowed; bucket administration and other prefixes are excluded. No static access keys are used.
+```bash
+sudo systemctl start tws-s3fs
+findmnt /mnt/watchlists
+ls /mnt/watchlists
+```
 
-Change `bucket`, `prefix`, `s3Region` and `s3ReadWrite` in configuration, or clear `bucket` to disable the mount. s3fs mounts the existing bucket/prefix at `/mnt/watchlists` through `tws-s3fs.service`, at boot. It uses trader's UID/GID (UID 1100), `allow_other`, `mp_umask=022` and `compat_dir`. `s3ReadWrite: true` grants `s3:*` on objects under the configured prefix and enables writes; false limits object access to reads. The prefix and required permissions must already exist; SSE-KMS buckets may need additional KMS permissions.
-
-Changing mount settings requires deployment. S3 is not POSIX storage: avoid concurrent edits and verify important saves. Normal EC2 shutdown stops applications and filesystem services; save important work before stopping.
+- The service mounts the configured bucket/prefix at `/mnt/watchlists` automatically at boot.
+- s3fs uses temporary EC2 role credentials; no password file or Parameter Store secret is needed.
+- If unconfigured, set `bucket` in Git-ignored `config/local.json`, then deploy `TwsDesktop`.
+- Defaults use prefix `watchlists`; the role grants object access only within the configured prefix.
+- Set `s3ReadWrite: false` for read-only access; bucket administration remains excluded.
+- Changing the bucket/prefix requires deployment to update both IAM and mount settings.
+- S3 is not POSIX storage; avoid concurrent edits and verify important saves.
 
 ## Troubleshooting
 

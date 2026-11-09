@@ -104,7 +104,6 @@ npx cdk deploy --all --profile poweruser --require-approval never
 .\scripts\workstation.ps1 status
 .\scripts\workstation.ps1 start
 .\scripts\workstation.ps1 stop
-.\scripts\workstation.ps1 session -IdentityFile ~/.ssh/id_ed25519
 .\scripts\workstation.ps1 down
 npx cdk deploy TwsDesktop --profile poweruser --require-approval never
 ```

@@ -1,10 +1,7 @@
 param(
-  [Parameter(Mandatory)][ValidateSet('start','stop','status','session','down')][string]$Action,
+  [Parameter(Mandatory)][ValidateSet('start','stop','status','down')][string]$Action,
   [string]$Profile = 'poweruser',
-  [string]$Region = '',
-  [string]$IdentityFile = '',
-  # Accepted for compatibility; shutdown no longer requires apps to be closed.
-  [switch]$ApplicationsClosed
+  [string]$Region = ''
 )
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot -Parent
@@ -25,17 +22,8 @@ function Invoke-Aws {
 }
 $instance = Invoke-Aws -CliArgs @('cloudformation','describe-stacks','--stack-name','TwsDesktop','--query',"Stacks[0].Outputs[?OutputKey=='InstanceId'].OutputValue | [0]",'--output','text')
 if ($instance -notmatch '^i-[a-f0-9]+$') { throw 'Could not resolve desktop instance ID' }
-function Get-SshTarget {
-  $address = Invoke-Aws -CliArgs @('ec2','describe-instances','--instance-ids',$instance,'--query','Reservations[0].Instances[0].PublicIpAddress','--output','text')
-  $parsed = $null
-  if (-not [Net.IPAddress]::TryParse($address, [ref]$parsed) -or $parsed.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork) { throw 'Instance has no current public IPv4 address' }
-  return "trader@$address"
-}
-$sshOptions = @('-o', 'ConnectTimeout=15')
-if ($IdentityFile) { $sshOptions += @('-i', $IdentityFile) }
 switch ($Action) {
   'status' { Invoke-Aws -CliArgs @('ec2','describe-instances','--instance-ids',$instance,'--query','Reservations[0].Instances[0].{Id:InstanceId,State:State.Name,Type:InstanceType,PublicIp:PublicIpAddress}','--output','table') }
-  'session' { $target = Get-SshTarget; & ssh @sshOptions $target; if ($LASTEXITCODE -ne 0) { throw 'SSH session failed' } }
   'start' {
     Invoke-Aws -CliArgs @('ec2','start-instances','--instance-ids',$instance) | Out-Null
     Invoke-Aws -CliArgs @('ec2','wait','instance-status-ok','--instance-ids',$instance)

@@ -41,6 +41,15 @@ switch ($Action) {
       Invoke-Aws -CliArgs @('ec2','wait','instance-stopped','--instance-ids',$instance)
     }
     if ($Action -eq 'down') {
+      Write-Host ""
+      Write-Host "WARNING: This will destroy the TwsDesktop stack and cannot be undone." -ForegroundColor Red
+      Write-Host "The data disk (/srv/tws/home) will be retained, but the EC2 instance and root disk will be deleted." -ForegroundColor Yellow
+      Write-Host ""
+      $confirmation = Read-Host "Type 'y' to confirm destruction, or press Enter to cancel"
+      if ($confirmation -ne 'y') {
+        Write-Host "Cancelled."
+        exit 0
+      }
       Push-Location $projectRoot
       $npx = if ($IsWindows) { 'npx.cmd' } else { 'npx' }
       try { & $npx cdk destroy TwsDesktop --profile $Profile; if ($LASTEXITCODE -ne 0) { throw 'CDK destroy failed' } }

@@ -14,11 +14,13 @@ const base = JSON.parse(
 const local = existsSync(resolve("config/local.json"))
   ? JSON.parse(readFileSync(resolve("config/local.json"), "utf8"))
   : {};
+const localEnv = loadLocalEnvironment();
 const config: Config = {
   ...base,
   ...local,
   rdpCidr: loadRdpCidr(),
-  sshPublicKeys: loadSshPublicKeys(loadLocalEnvironment()),
+  sshPublicKeys: loadSshPublicKeys(localEnv),
+  bucket: localEnv.S3_BUCKET || base.bucket,
 };
 if (!config.availabilityZone.startsWith(config.region))
   throw new Error("Availability zone must match region");

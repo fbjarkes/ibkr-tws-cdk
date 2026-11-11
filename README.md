@@ -122,19 +122,28 @@ npx cdk deploy TwsDesktop --profile poweruser --require-approval never
 - Alternatively, use AWS CLI directly:
 
 ```bash
-export AWS_PROFILE=poweruser AWS_DEFAULT_REGION=eu-north-1
-INSTANCE_ID=$(aws cloudformation describe-stacks --stack-name TwsDesktop --query "Stacks[0].Outputs[?OutputKey=='InstanceId'].OutputValue | [0]" --output text)
-aws ec2 describe-instances --instance-ids "$INSTANCE_ID" --query 'Reservations[0].Instances[0].{State:State.Name,IP:PublicIpAddress}' --output table
-aws ec2 start-instances --instance-ids "$INSTANCE_ID"
-aws ec2 wait instance-status-ok --instance-ids "$INSTANCE_ID"
+SSH uses public keys only; direct root SSH is disabled. No account password or AWS credentials are needed for direct SSH. SSM remains an optional fallback, not part of routine administration.
+
+On Win11, open `mstsc`, connect to the current EC2 public IP, and log in as `trader` using the RDP password. Choose Xorg if prompted. xrdp starts at boot; the XFCE session starts on login. Validate the self-signed certificate. Disconnecting preserves the session; logging out ends it.
+
+Windows PowerShell one-liner using the current session's environment variable (replace the example IP):
+
+```powershell
+$env:RDP_IP='203.0.113.10'; mstsc.exe "/v:$env:RDP_IP" /prompt
 ```
 
-- To stop and wait for normal OS shutdown:
+Enter `trader` and the RDP password in the login dialog; leave **Remember me** unchecked. `mstsc` cannot read a username/password from environment variables or accept a password argument.
+
+On Debian/Linux, use FreeRDP 3 (`sudo apt install freerdp3-x11`). This one-liner looks up the current public IP from the stack:
 
 ```bash
-aws ec2 stop-instances --instance-ids "$INSTANCE_ID" --no-force --no-skip-os-shutdown
-aws ec2 wait instance-stopped --instance-ids "$INSTANCE_ID"
+export AWS_PROFILE=poweruser AWS_DEFAULT_REGION=eu-north-1
+INSTANCE_ID=$(aws cloudformation describe-stacks --stack-name TwsDesktop --query "Stacks[0].Outputs[?OutputKey=='InstanceId'].OutputValue | [0]" --output text)
+RDHOST=$(aws ec2 describe-instances --instance-ids "$INSTANCE_ID" --query 'Reservations[0].Instances[0].PublicIpAddress' --output text)
+xfreerdp /v:$RDHOST /u:trader /p:"$RDP_PASSWORD" /cert-ignore +clipboard
 ```
+
+To stop and wait for normal OS shutdown:
 
 ### SSH and sudo: all clients
 
@@ -331,3 +340,15 @@ First-boot logs are also in `/var/log/cloud-init-output.log`. For older installa
 
 The EC2 logical ID is pinned to preserve its deployed identity. Older instances predating the boot updater need a one-time SSH installation of that service before migration. Do not rename foundation constructs or change the data disk's AZ casually.
 
+## References
+
+- [Detailed architecture](docs/architecture.md)
+- [EC2 user-data update behavior](https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-ec2-instance.html#cfn-ec2-instance-userdata)
+- [s3fs options](https://github.com/s3fs-fuse/s3fs-fuse/blob/master/doc/man/s3fs.1.in)
+- [Herdr installation](https://herdr.dev/docs/install/) and [remote access](https://herdr.dev/docs/persistence-remote/)
+
+- [Tailscale Linux installation](https://tailscale.com/docs/install/linux)
+
+## OS security alternative
+
+See [security setup and validation](docs/security.md) for this branch's local-only monitoring configuration.
